@@ -86,7 +86,7 @@ export class MtpClient {
         // endpoint in a stall state. On reconnect, transferOut hangs indefinitely.
         await this.receiveResponse();
       }
-    } catch (e) {
+    } catch {
       // Ignore errors — device may have already disconnected
     }
     await this.usbManager.disconnect();

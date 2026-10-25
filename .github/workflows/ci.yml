@@ -1,0 +1,81 @@
+name: CI
+
+# Lint + tests en cada push a main y en cada PR.
+# El workflow de release (release.yml) corre los mismos checks antes de publicar.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+
+  # React: lint, tests (vitest) y build — el build lo necesitan Go (embed) y Flutter (assets)
+  web:
+    name: Web — lint, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run lint
+      - run: npm test
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+          retention-days: 1
+
+  # Launcher Go: go:embed necesita dist/ presente para compilar
+  go:
+    name: Go — vet, test
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - run: go vet .
+      - run: go test .
+
+  # Flutter: pubspec declara assets/www/, que sale del build web
+  mobile:
+    name: Flutter — analyze, test
+    runs-on: ubuntu-latest
+    needs: web
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: mobile/assets/www/
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: stable
+          cache: true
+
+      - name: flutter analyze
+        working-directory: mobile
+        run: flutter analyze
+
+      - name: flutter test
+        working-directory: mobile
+        run: flutter test

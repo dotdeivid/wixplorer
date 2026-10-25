@@ -1,7 +1,8 @@
 import React, { memo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import styles from './FileExplorer.module.css';
-import FileItemComponent, { FolderIcon, SmallFolderIcon, getFileEmoji } from './FileItem';
+import FileItemComponent, { FolderIcon, SmallFolderIcon } from './FileItem';
+import { getFileEmoji } from './fileEmoji';
 import FileListItem from './FileListItem';
 import type { FileItem, PathNode } from '../../hooks/useMTPDevice';
 import type { ViewMode, GroupMode } from '../layout/AppLayout';
@@ -20,7 +21,7 @@ function getFileCategory(file: FileItem): string {
 }
 
 /* ── Column item with lazy thumbnail support ─────────────────────────────── */
-const noopThumb = async (_h: number): Promise<Blob | null> => null;
+const noopThumb = async (): Promise<Blob | null> => null;
 
 const ColumnFileItem = memo<{
   file: FileItem;

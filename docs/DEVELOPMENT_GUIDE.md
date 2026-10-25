@@ -11,8 +11,9 @@ wixplorer/
   src/                  ← App React (UI web)
   mobile/               ← App Flutter (servidor Android)
   main.go               ← Launcher Go (ejecutable de escritorio)
-  build_desktop.sh      ← Build completo para Mac + Windows
-  build_mobile_web.sh   ← Build React → assets Flutter
+  scripts/
+    build_desktop.sh    ← Build completo para Mac + Windows
+    build_mobile_web.sh ← Build React → assets Flutter
 ```
 
 ### Dos modos de uso independientes
@@ -21,6 +22,33 @@ wixplorer/
 |------|-------------------|----------|
 | **USB** | Go launcher en la PC | `WiXplorer.exe` / `.app` en la computadora |
 | **WiFi** | Flutter en el teléfono | App Android instalada + browser en la PC |
+
+### Decisiones de arquitectura
+
+**No hay backend en Node.js.** Node solo existe como herramienta de desarrollo (Vite). El backend real del modo WiFi es el servidor Flutter que corre en el teléfono:
+
+```
+Navegador (React) ←→ Go launcher   (localhost:3000, solo archivos estáticos)
+Navegador (React) ←→ Flutter server (192.168.x.x:7070, API real)
+Navegador (React) ←→ WebUSB         (MTP por USB, directo desde el browser)
+```
+
+| Responsabilidad | Quién la maneja |
+|-----------------|-----------------|
+| Autenticación (PIN + token) | `AuthService` en Flutter |
+| Listado y acceso a archivos Android | `FileService` en Flutter |
+| Streaming de video (Range requests) | `server_service.dart` en Flutter |
+| Acceso MTP (Android por USB) | WebUSB, directamente en el browser |
+| Servir la interfaz web en escritorio | Launcher Go (su única responsabilidad) |
+
+**Por qué un launcher en Go.** Embebe `dist/` con `go:embed`, levanta un servidor en `127.0.0.1` y abre el browser. Para el usuario final: un solo archivo, doble clic, sin instalar Node ni abrir una terminal, y funciona offline. Para desarrollo: cross-compilación a Windows desde Mac sin VM y binario Universal con `lipo`. El flujo diario no cambia — se sigue trabajando con Vite y Go solo entra al empaquetar.
+
+**Alternativas descartadas:**
+- **Electron** — ~150 MB por el Chromium embebido, contra ~10–12 MB del binario Go.
+- **Tauri** — en macOS usa WKWebView, que no soporta WebUSB; el modo MTP dejaría de funcionar.
+- **Distribuir con Node** — obliga al usuario a tener Node instalado.
+
+**Rendimiento.** Go no acelera las transferencias: sirve archivos locales y ese paso es instantáneo. El cuello de botella es siempre la WiFi, el servidor Flutter leyendo del almacenamiento Android y el browser procesando los blobs. Las optimizaciones de red van en Flutter (Range requests, compresión desactivada para no romperlos).
 
 ---
 
@@ -165,7 +193,11 @@ También se puede copiar el `.apk` al teléfono y abrirlo desde el explorador de
 |--------|----------|
 | `npm run dev` | Servidor de desarrollo React (hot reload) |
 | `npm run build` | Compila React → `dist/` |
+| `npm run lint` | ESLint sobre todo el proyecto web |
+| `npm test` | Tests unitarios web (vitest) |
 | `go run main.go` | Prueba el launcher Go sin compilar |
+| `go test .` | Tests del launcher Go (requiere `dist/`) |
+| `cd mobile && flutter test` | Tests unitarios Flutter |
 | `./scripts/build_mobile_web.sh` | Compila React y copia a `mobile/assets/www/` |
 | `./scripts/build_desktop.sh` | Build completo: React + Go Mac/Win + `.app` + ZIP |
 | `cd mobile && flutter run` | App Android en modo debug (hot reload) |
@@ -176,6 +208,8 @@ También se puede copiar el `.apk` al teléfono y abrirlo desde el explorador de
 
 ## Checklist antes de distribuir
 
+- [ ] `npm run lint` y `npm test` sin errores
+- [ ] `go test .` y `cd mobile && flutter analyze && flutter test` sin errores
 - [ ] `npm run build` sin errores TypeScript
 - [ ] `./scripts/build_desktop.sh` genera `dist_bin/WiXplorer_v1.0.zip`
 - [ ] Probar el `.app` localmente: doble clic → se abre el browser

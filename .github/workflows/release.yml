@@ -11,7 +11,7 @@ on:
 jobs:
 
   # ────────────────────────────────────────────────────────────────────────────
-  # 1. Compilar React — resultado compartido con los jobs siguientes
+  # 1. Lint + tests + compilar React — resultado compartido con los jobs siguientes
   # ────────────────────────────────────────────────────────────────────────────
   build-web:
     name: Build React
@@ -25,6 +25,8 @@ jobs:
           cache: npm
 
       - run: npm ci
+      - run: npm run lint
+      - run: npm test
       - run: npm run build
 
       - uses: actions/upload-artifact@v4
@@ -74,6 +76,12 @@ jobs:
           storeFile=keystore.jks
           EOF
 
+      - name: flutter analyze + test
+        working-directory: mobile
+        run: |
+          flutter analyze
+          flutter test
+
       - name: flutter build apk --release
         working-directory: mobile
         run: flutter build apk --release
@@ -105,6 +113,11 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+
+      - name: go vet + test
+        run: |
+          go vet .
+          go test .
 
       - name: Instalar goversioninfo
         run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest

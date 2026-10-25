@@ -1,7 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import styles from './PreviewPanel.module.css';
 import type { FileItem } from '../../hooks/useMTPDevice';
-import { getFileEmoji } from '../explorer/FileItem';
+import type { PDFDocument } from 'pdf-lib';
+import { getFileEmoji } from '../explorer/fileEmoji';
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PreviewType = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'fallback';
@@ -165,7 +166,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   const [videoDuration, setVideoDuration] = useState(0);
   const [pdfPage, setPdfPage] = useState(1);
   const [pdfTotalPages, setPdfTotalPages] = useState<number>(0);
-  const [pdfDocInternal, setPdfDocInternal] = useState<any>(null);
+  const [pdfDocInternal, setPdfDocInternal] = useState<PDFDocument | null>(null);
   const videoRef = React.useRef<HTMLVideoElement>(null);
 
   const togglePlay = () => {
@@ -294,7 +295,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         const [copied] = await newDoc.copyPages(pdfDocInternal, [pdfPage - 1]);
         newDoc.addPage(copied);
         const bytes = await newDoc.save();
-        const blob = new Blob([bytes as any], { type: 'application/pdf' });
+        const blob = new Blob([bytes as Uint8Array<ArrayBuffer>], { type: 'application/pdf' });
         const url = URL.createObjectURL(blob);
         
         if (!cancelled) {
