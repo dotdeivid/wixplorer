@@ -458,7 +458,7 @@ const AppLayout: React.FC = () => {
 
   const handleQuit = useCallback(() => {
     setQuitting(true);
-    fetch('/quit').catch(() => {});
+    fetch('/quit', { method: 'POST' }).catch(() => {});
   }, []);
 
   const showError = activeError && !errorDismissed;
