@@ -3,6 +3,7 @@ import { NetworkClient } from '../services/network/NetworkClient';
 import { isSelfHosted, getSelfOrigin } from '../services/network/selfHosted';
 import type { FileItem, PathNode } from './useMTPDevice';
 import { clearLruCache } from './useThumbnail';
+import { errorMessage, errorName } from '../utils/errors';
 
 export interface NetworkDevice {
   ip: string;
@@ -111,9 +112,9 @@ export { formatSpeed };
 
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
-function friendlyDownloadError(err: any): string {
-  const name: string = err?.name ?? '';
-  const msg: string  = (err?.message ?? '').toLowerCase();
+function friendlyDownloadError(err: unknown): string {
+  const name: string = errorName(err) ?? '';
+  const msg: string  = (errorMessage(err) ?? '').toLowerCase();
 
   if (err instanceof RangeError || msg.includes('array buffer') || msg.includes('allocation failed') || msg.includes('out of memory')) {
     return 'El archivo es demasiado grande para cargarlo en memoria. Intentá reintentar — si el problema persiste, el dispositivo o navegador no tiene suficientes recursos disponibles.';
@@ -133,7 +134,7 @@ function friendlyDownloadError(err: any): string {
       + 'Intentá en una ventana normal.';
   }
 
-  return err?.message || 'Error al descargar';
+  return errorMessage(err) || 'Error al descargar';
 }
 
 export function useNetworkDevice(): NetworkDeviceState {
@@ -207,7 +208,7 @@ export function useNetworkDevice(): NetworkDeviceState {
         // igual pre-cargar con la IP como nombre
         setDevices([{ ip: origin.ip, port: origin.port, deviceName: origin.ip }]);
       });
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 
   // ── Health check — solo verifica el dispositivo conectado ────────────────
   useEffect(() => {
@@ -293,11 +294,11 @@ export function useNetworkDevice(): NetworkDeviceState {
         onProgress ? (chunk) => onProgress(toFileItems(chunk)) : undefined,
       );
       return toFileItems(data);
-    } catch (e: any) {
-      if (e?.message === 'SESSION_EXPIRED') resetConnection(true);
+    } catch (e) {
+      if (errorMessage(e) === 'SESSION_EXPIRED') resetConnection(true);
       throw e;
     }
-  }, [resetConnection]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [resetConnection]);
 
   // ── Autenticación ─────────────────────────────────────────────────────────
 
@@ -380,8 +381,8 @@ export function useNetworkDevice(): NetworkDeviceState {
       const items = await listPath(path, setFiles); // renderizado progresivo
       setFiles(items); // resultado final ordenado
       setFolderCache(prev => ({ ...prev, [newNodeId]: items }));
-    } catch (e: any) {
-      setError(e.message ?? 'Error al cargar la carpeta');
+    } catch (e) {
+      setError(errorMessage(e) ?? 'Error al cargar la carpeta');
     } finally {
       setIsLoading(false);
     }
@@ -402,8 +403,8 @@ export function useNetworkDevice(): NetworkDeviceState {
       const items = await listPath(targetPath, setFiles);
       setFiles(items);
       setFolderCache(prev => ({ ...prev, [targetNodeId]: items }));
-    } catch (e: any) {
-      setError(e.message ?? 'Error al navegar');
+    } catch (e) {
+      setError(errorMessage(e) ?? 'Error al navegar');
     } finally {
       setIsLoading(false);
     }
@@ -424,8 +425,8 @@ export function useNetworkDevice(): NetworkDeviceState {
       const items = await listPath(targetPath, setFiles);
       setFiles(items);
       setFolderCache(prev => ({ ...prev, [index]: items }));
-    } catch (e: any) {
-      setError(e.message ?? 'Error al navegar');
+    } catch (e) {
+      setError(errorMessage(e) ?? 'Error al navegar');
     } finally {
       setIsLoading(false);
     }
@@ -453,8 +454,8 @@ export function useNetworkDevice(): NetworkDeviceState {
       const items = await listPath(path, setFiles);
       setFiles(items);
       setFolderCache(prev => ({ ...prev, [newDepth]: items }));
-    } catch (e: any) {
-      setError(e.message ?? 'Error al cargar la carpeta');
+    } catch (e) {
+      setError(errorMessage(e) ?? 'Error al cargar la carpeta');
     } finally {
       setIsLoading(false);
     }
@@ -512,9 +513,9 @@ export function useNetworkDevice(): NetworkDeviceState {
         if (speed > 0) setDownloadSpeed(speed);
         setDownloadEta(eta);
       }, controller.signal);
-    } catch (e: any) {
-      if (e?.name === 'AbortError') { /* cancelado por el usuario — no mostrar error */ }
-      else if (e?.message === 'SESSION_EXPIRED') resetConnection(true);
+    } catch (e) {
+      if (errorName(e) === 'AbortError') { /* cancelado por el usuario — no mostrar error */ }
+      else if (errorMessage(e) === 'SESSION_EXPIRED') resetConnection(true);
       else setError(friendlyDownloadError(e));
     } finally {
       downloadAbortRef.current = null;
@@ -545,9 +546,9 @@ export function useNetworkDevice(): NetworkDeviceState {
       const items = await listPath(currentFolder);
       setFiles(items);
       setFolderCache(prev => ({ ...prev, [nodeId]: items }));
-    } catch (e: any) {
-      if (e?.message === 'SESSION_EXPIRED') resetConnection(true);
-      else setError(e?.message ?? 'Error al eliminar');
+    } catch (e) {
+      if (errorMessage(e) === 'SESSION_EXPIRED') resetConnection(true);
+      else setError(errorMessage(e) ?? 'Error al eliminar');
       throw e;
     } finally {
       setIsLoading(false);

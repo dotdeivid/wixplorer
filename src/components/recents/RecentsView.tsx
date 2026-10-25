@@ -4,7 +4,7 @@ import { X } from 'lucide-react';
 import styles from './RecentsView.module.css';
 import { RecentsStorage, type RecentEntry } from '../../services/recents/RecentsStorage';
 import type { FileItem } from '../../hooks/useMTPDevice';
-import { getFileEmoji } from '../explorer/FileItem';
+import { getFileEmoji } from '../explorer/fileEmoji';
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 function formatSize(bytes: number): string {
