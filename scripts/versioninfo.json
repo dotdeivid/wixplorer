@@ -1,0 +1,18 @@
+{
+  "FixedFileInfo": {
+    "FileVersion":    { "Major": 1, "Minor": 0, "Patch": 0, "Build": 0 },
+    "ProductVersion": { "Major": 1, "Minor": 0, "Patch": 0, "Build": 0 }
+  },
+  "StringFileInfo": {
+    "CompanyName":      "WiXplorer",
+    "FileDescription":  "WiXplorer — Gestor de archivos Android",
+    "FileVersion":      "1.0.0",
+    "InternalName":     "WiXplorer",
+    "OriginalFilename": "WiXplorer.exe",
+    "ProductName":      "WiXplorer",
+    "ProductVersion":   "1.0.0"
+  },
+  "VarFileInfo": { "Translation": { "LangID": 1033, "CharsetID": 1200 } },
+  "IconPath": "build/icon.ico",
+  "ManifestPath": ""
+}

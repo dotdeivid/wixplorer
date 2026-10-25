@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <!-- Fondo azul redondeado (igual que el widget en HomeScreen) -->
+  <rect x="0" y="0" width="1024" height="1024" rx="226" ry="226" fill="#2F7FF5"/>
+  <!-- swap_horiz icon (Material Design) centrado y escalado a ~520×520 px -->
+  <!-- Original viewBox 0 0 24 24 → scale 520/24 ≈ 21.67, offset (1024-520)/2 = 252 -->
+  <g transform="translate(252,252) scale(21.667)">
+    <path fill="#FFFFFF"
+      d="M6.99 11L3 15l3.99 4v-3H14v-2H6.99v-3zM21 9l-3.99-4v3H10v2h7.01v3L21 9z"/>
+  </g>
+</svg>

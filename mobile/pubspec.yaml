@@ -1,0 +1,49 @@
+name: wixplorer_mobile
+description: "WiXplorer — accede a los archivos de tu teléfono desde el navegador."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.11.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cupertino_icons: ^1.0.8
+  shelf: ^1.4.2
+  shelf_router: ^1.1.4
+  path_provider: ^2.1.5
+  permission_handler: ^11.3.1
+  mime: ^2.0.0
+  uuid: ^4.5.1
+  network_info_plus: ^6.1.3
+  wakelock_plus: ^1.2.10
+  device_info_plus: ^10.1.0
+  video_thumbnail: ^0.5.3
+  image: ^4.2.0
+  flutter_image_compress: ^2.3.0
+  url_launcher: ^6.3.1
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  flutter_launcher_icons: ^0.14.3
+
+flutter_launcher_icons:
+  # Imagen fuente 1024×1024 px (fondo azul + ícono swap blanco)
+  # Ejecutar: flutter pub run flutter_launcher_icons
+  image_path: "assets/icon/icon.png"
+  android: true
+  ios: true
+  min_sdk_android: 21
+  adaptive_icon_background: "#2F7FF5"
+  adaptive_icon_foreground: "assets/icon/icon_foreground.png"
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/icon/
+    - assets/www/
+    - assets/www/assets/

@@ -1,0 +1,88 @@
+/* ─── Dropdown popup ────────────────────────────────────────────────────── */
+
+.dropdownWrapper {
+  position: relative;
+  display: flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 10px;
+  background-color: var(--bg-sidebar);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+}
+
+.dropdownWrapper:hover {
+  background-color: var(--bg-button-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  cursor: pointer;
+}
+
+.dropdownWrapper:hover > button {
+  color: var(--text-primary);
+}
+
+/* Trigger button — already uses .groupBtn from Toolbar.module.css */
+
+.popup {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 50%;
+  transform: translateX(-50%);
+  min-width: 220px;
+  background-color: var(--bg-dropdown);
+  border: 1px solid var(--bg-dropdown-border);
+  border-radius: 10px;
+  padding: 4px 0;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5), 0 2px 6px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  animation: dropIn 0.12s ease;
+}
+
+@keyframes dropIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+.option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 14px;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-primary);
+  transition: background-color 0.08s;
+  min-height: 28px;
+}
+
+.option:hover {
+  background-color: var(--color-accent-blue);
+  color: #fff;
+}
+
+.checkIcon {
+  width: 14px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-accent-blue);
+}
+
+.option:hover .checkIcon {
+  color: #fff;
+}
+
+.divider {
+  height: 1px;
+  background-color: var(--bg-dropdown-border);
+  margin: 4px 0;
+}

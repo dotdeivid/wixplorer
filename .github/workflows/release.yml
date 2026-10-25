@@ -1,0 +1,209 @@
+name: Build & Release
+
+# Dispara en push de tag vX.Y.Z  (ej: git tag v1.0.1 && git push --tags)
+# También se puede lanzar manualmente desde la pestaña Actions de GitHub.
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+  workflow_dispatch:
+
+jobs:
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 1. Compilar React — resultado compartido con los jobs siguientes
+  # ────────────────────────────────────────────────────────────────────────────
+  build-web:
+    name: Build React
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - run: npm ci
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 2. APK Android  (firma con debug key; ver nota al pie para release signing)
+  # ────────────────────────────────────────────────────────────────────────────
+  build-apk:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    needs: build-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar web compilada
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: mobile/assets/www/
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.x'
+          channel: stable
+          cache: true
+
+      # Si el repo tiene secrets de keystore, firmar con clave de producción.
+      # Si no, Flutter usa la debug key (válida para distribución directa/APK sideload).
+      - name: Configurar keystore (opcional)
+        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        working-directory: mobile
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
+          cat > android/key.properties <<EOF
+          storePassword=${{ secrets.KEYSTORE_PASSWORD }}
+          keyPassword=${{ secrets.KEY_PASSWORD }}
+          keyAlias=${{ secrets.KEY_ALIAS }}
+          storeFile=keystore.jks
+          EOF
+
+      - name: flutter build apk --release
+        working-directory: mobile
+        run: flutter build apk --release
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-apk
+          path: mobile/build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 3. Binarios de escritorio — macOS Universal (.app) + Windows (.exe)
+  #    Corre en macOS para poder usar lipo y codesign.
+  # ────────────────────────────────────────────────────────────────────────────
+  build-desktop:
+    name: Build Desktop (macOS + Windows)
+    runs-on: macos-latest
+    needs: build-web
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar web compilada
+        uses: actions/download-artifact@v4
+        with:
+          name: web-dist
+          path: dist/
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Instalar goversioninfo
+        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+
+      - name: Generar resource.syso (metadatos + ícono Windows)
+        run: |
+          ~/go/bin/goversioninfo \
+            -icon="build/icon.ico" \
+            -o="resource.syso" \
+            "scripts/versioninfo.json"
+
+      - name: Build Windows .exe
+        run: |
+          mkdir -p dist_bin
+          GOOS=windows GOARCH=amd64 go build \
+            -ldflags="-s -w -H windowsgui" \
+            -o dist_bin/WiXplorer.exe main.go
+
+      # resource.syso solo es para Windows; eliminarlo antes del build macOS
+      # evita que Go lo intente enlazar en otro GOOS.
+      - name: Eliminar resource.syso
+        run: rm -f resource.syso
+
+      - name: Build macOS Universal (arm64 + amd64)
+        run: |
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist_bin/WiXplorer_arm64 main.go
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist_bin/WiXplorer_amd64 main.go
+          lipo -create -output dist_bin/WiXplorer_mac \
+            dist_bin/WiXplorer_arm64 \
+            dist_bin/WiXplorer_amd64
+          rm dist_bin/WiXplorer_arm64 dist_bin/WiXplorer_amd64
+
+      - name: Armar WiXplorer.app
+        run: |
+          APP="dist_bin/WiXplorer.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          cp dist_bin/WiXplorer_mac "$APP/Contents/MacOS/WiXplorer"
+          chmod +x "$APP/Contents/MacOS/WiXplorer"
+          cp build/Info.plist  "$APP/Contents/Info.plist"
+          cp build/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+          # Firma ad-hoc (evita advertencias de Gatekeeper en Mac sin notarización)
+          codesign --deep --force --sign - "$APP" 2>/dev/null || true
+
+      - name: Empaquetar macOS (.zip preserva permisos de ejecución)
+        run: |
+          cd dist_bin
+          zip -r --symlinks WiXplorer_mac.zip WiXplorer.app
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-zip
+          path: dist_bin/WiXplorer_mac.zip
+          retention-days: 1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-exe
+          path: dist_bin/WiXplorer.exe
+          retention-days: 1
+
+  # ────────────────────────────────────────────────────────────────────────────
+  # 4. Crear GitHub Release con los tres artefactos
+  # ────────────────────────────────────────────────────────────────────────────
+  release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    needs: [build-apk, build-desktop]
+    permissions:
+      contents: write
+    steps:
+      - name: Descargar APK
+        uses: actions/download-artifact@v4
+        with:
+          name: android-apk
+          path: release/
+
+      - name: Descargar macOS
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-zip
+          path: release/
+
+      - name: Descargar Windows
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-exe
+          path: release/
+
+      - name: Renombrar APK
+        run: mv release/app-release.apk release/WiXplorer.apk
+
+      - name: Publicar Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: WiXplorer ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          files: |
+            release/WiXplorer.apk
+            release/WiXplorer_mac.zip
+            release/WiXplorer.exe

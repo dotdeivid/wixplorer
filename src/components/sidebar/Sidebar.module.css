@@ -1,0 +1,365 @@
+/* ============================================================
+   Sidebar — macOS Finder dark sidebar (floating card variant)
+   ============================================================ */
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow-y: auto;
+  overflow-x: hidden;
+  padding: 0;
+}
+
+.topNavbar {
+  display: flex;
+  align-items: center;
+  padding: 0 18px;
+  margin: 0;
+  height: calc(var(--toolbar-height) - 1px);
+  min-height: calc(var(--toolbar-height) - 1px);
+  border-bottom: 1px solid var(--border-toolbar);
+  border-radius: 0;
+  margin-bottom: 20px;
+}
+
+.appName {
+  font-size: 20px;
+  font-weight: bold;
+  color: var(--text-primary);
+  letter-spacing: 0.4px;
+}
+
+.appLogo {
+  width: 22px;
+  height: 22px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Section label ─────────────────────────────────────────── */
+.sectionLabel {
+  padding: 14px 16px 3px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-sidebar-label);
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+}
+
+/* ── Generic sidebar row ───────────────────────────────────── */
+.row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 14px;
+  border-radius: 6px;
+  margin: 1px 10px;
+  min-height: 28px;
+  cursor: pointer;
+  color: var(--text-primary);
+  font-size: 13px;
+  transition: background-color 0.1s;
+}
+
+.row:hover {
+  background-color: var(--bg-sidebar-hover);
+}
+
+.row.active {
+  background-color: var(--color-accent-blue);
+  color: #fff;
+}
+
+.row.active .rowIcon {
+  color: #fff !important;
+  opacity: 1 !important;
+}
+
+/* ── Row icon ──────────────────────────────────────────────── */
+.rowIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  color: var(--color-sidebar-icon);
+  opacity: 0.85;
+}
+
+.rowLabel {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-size: 13px;
+}
+
+/* ── Device row (Ubicaciones) ──────────────────────────────── */
+.deviceRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 8px 4px 14px;
+  border-radius: 6px;
+  margin: 1px 5px;
+  min-height: 28px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-primary);
+  transition: background-color 0.1s;
+}
+
+.deviceRow:hover {
+  background-color: var(--bg-sidebar-hover);
+}
+
+.deviceRow.active {
+  background-color: var(--color-accent-blue);
+  color: #fff;
+}
+
+.deviceRow.active .rowIcon,
+.deviceRow.active .ejectBtn {
+  color: #fff !important;
+  opacity: 1 !important;
+}
+
+/* Connected status dot */
+.connDot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.connDot.on {
+  background-color: #34c759;
+}
+
+.connDot.off {
+  background-color: rgba(255, 255, 255, 0.2);
+}
+
+/* Eject/disconnect "×" badge button */
+.ejectBtn {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s, background-color 0.1s;
+  font-size: 13px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.deviceRow:hover .ejectBtn {
+  opacity: 1;
+}
+
+.ejectBtn:hover {
+  background-color: rgba(255, 255, 255, 0.12);
+  color: var(--text-primary);
+}
+
+/* ── Pending device (clickable to connect) ─────────────────── */
+.pendingDevice {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 14px;
+  border-radius: 6px;
+  margin: 1px 5px;
+  min-height: 28px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #4a9eff;
+  background: none;
+  border: none;
+  width: calc(100% - 10px);
+  text-align: left;
+  transition: background-color 0.1s;
+}
+
+.pendingDevice:hover {
+  background-color: var(--bg-sidebar-hover);
+}
+
+.pendingLabel {
+  flex: 1;
+  font-size: 13px;
+  color: #4a9eff;
+}
+
+.pendingHint {
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 2px 14px 6px;
+}
+
+/* ── Tags section ──────────────────────────────────────────── */
+.tagDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* ── Add device button ─────────────────────────────────────── */
+.addDeviceBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px 4px 14px;
+  border-radius: 6px;
+  margin: 1px 5px;
+  min-height: 28px;
+  cursor: pointer;
+  background: none;
+  border: none;
+  width: calc(100% - 10px);
+  text-align: left;
+  transition: background-color 0.1s;
+}
+
+.addDeviceBtn:hover {
+  background-color: var(--bg-sidebar-item-hover);
+}
+
+.addDeviceBtn:disabled {
+  cursor: not-allowed;
+  opacity: 0.4;
+}
+
+.addDeviceLabel {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+/* ── Dimmed (loading) ──────────────────────────────────────── */
+.dimmed {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ── Red section ───────────────────────────────────────────── */
+.networkScanBtn {
+  display: block;
+  width: calc(100% - 20px);
+  margin: 4px 10px;
+  padding: 6px 0;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-accent-blue);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  cursor: pointer;
+  transition: opacity 0.15s;
+}
+
+.networkScanBtn:hover:not(:disabled) {
+  opacity: 0.85;
+}
+
+.networkScanBtn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.networkHint {
+  display: block;
+  font-size: 11px;
+  color: var(--text-tertiary);
+  padding: 4px 18px 2px;
+  line-height: 1.4;
+  text-align: center;
+}
+
+/* ── Scan progress bar ─────────────────────────────────────────── */
+.scanProgressTrack {
+  margin: 4px 10px 2px;
+  height: 2px;
+  border-radius: 1px;
+  background-color: rgba(255, 255, 255, 0.08);
+  overflow: hidden;
+}
+
+.scanProgressBar {
+  height: 100%;
+  border-radius: 1px;
+  background-color: var(--color-accent-blue);
+  transition: width 0.2s ease-out;
+}
+/* ── Footer — autor + versión ─────────────────────────────────── */
+.footer {
+  margin-top: auto;
+  padding: 10px 14px 2px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.footerNoQuit {
+  padding-bottom: 14px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.footerVersion {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.2);
+}
+
+.footerAuthor {
+  font-size: 10px;
+  color: rgba(255, 255, 255, 0.28);
+}
+
+.footerLink {
+  font-size: 10px;
+  color: var(--color-accent-blue);
+  text-decoration: none;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.footerLink:hover {
+  opacity: 1;
+  text-decoration: underline;
+}
+
+/* ── Quit button (Go launcher only) ───────────────────────────── */
+.quitArea {
+  padding: 4px 10px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.quitBtn {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  padding: 6px 10px;
+  background: none;
+  border: none;
+  border-radius: 6px;
+  color: rgba(255, 255, 255, 0.35);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.quitBtn:hover {
+  background: rgba(255, 59, 48, 0.12);
+  color: #ff453a;
+}

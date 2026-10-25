@@ -1,0 +1,101 @@
+/*
+  Layout: sidebar floats on the left with margin+radius.
+  The rest (toolbar + content) are transparent — the body bg-main shows through.
+*/
+.layout {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  /* padding creates the "outer gap" the sidebar floats within */
+  padding: var(--sidebar-margin);
+  overflow: hidden;
+  /* background is body's bg-main — no override needed */
+}
+
+/* The ONLY floating card: the sidebar */
+.sidebarWrapper {
+  flex-shrink: 0;
+  width: var(--sidebar-width);
+  height: 100%;
+  background-color: var(--bg-sidebar);
+  border-radius: var(--sidebar-radius);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border-color);
+}
+
+/* Main area — NOT a card, transparent so bg-main shows through */
+.mainArea {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+  /* No background, no border-radius — it's part of the unified bg */
+}
+
+.contentRow {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-width: 0;
+}
+
+/* ── Drag handle between file grid and preview panel ── */
+.resizeHandle {
+  width: 5px;
+  flex-shrink: 0;
+  cursor: ew-resize;
+  position: relative;
+  background: transparent;
+  transition: background-color 0.15s;
+  z-index: 10;
+}
+
+.resizeHandle::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 2px;
+  width: 1px;
+  height: 100%;
+  background-color: var(--border-toolbar);
+  transition: background-color 0.15s;
+}
+
+.resizeHandle:hover::after,
+.resizeHandle:active::after {
+  background-color: var(--color-accent-blue);
+  width: 2px;
+  left: 1.5px;
+}
+
+/* Error banner */
+.errorBanner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 16px;
+  background-color: rgba(255, 59, 48, 0.15);
+  border-bottom: 1px solid rgba(255, 59, 48, 0.25);
+  color: #ff9f9a;
+  font-size: 12px;
+}
+.errorBanner button {
+  margin-left: auto;
+  background: none;
+  border: none;
+  color: rgba(255,255,255,0.4);
+  cursor: pointer;
+  font-size: 16px;
+  border-radius: 3px;
+  padding: 0 4px;
+}
+.errorBanner button:hover { color: rgba(255,255,255,0.75); }

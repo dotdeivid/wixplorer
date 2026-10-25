@@ -1,0 +1,203 @@
+.toolbar {
+  height: var(--toolbar-height);
+  min-height: var(--toolbar-height);
+  /* transparent — body bg-main shows through */
+  background-color: transparent;
+  border-bottom: 1px solid var(--border-toolbar);
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* ── Nav buttons ─────────────────────────────────────────────── */
+.navGroup {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  margin-right: 4px;
+  height: 34px;
+  background-color: var(--bg-sidebar);
+  border-radius: 20px;
+  border: 1px solid var(--border-color);
+  padding: 0 6px;
+}
+
+.navBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 5px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.navBtn:hover:not(:disabled) {
+  background-color: var(--bg-button-hover);
+  color: var(--text-primary);
+  border-radius: 20px;
+}
+
+.navBtn:disabled {
+  color: var(--text-tertiary);
+  cursor: default;
+}
+
+/* ── Folder title ─────────────────────────────────────────────── */
+.folderTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 200px;
+}
+
+/* ── Spacer ───────────────────────────────────────────────────── */
+.spacer {
+  flex: 1;
+}
+
+/* ── View mode button group ──────────────────────────────────── */
+.viewGroup {
+  display: flex;
+  align-items: center;
+  background-color: var(--bg-sidebar);
+  border-radius: 20px;
+  padding: 5px 10px;
+  height: 34px;
+  gap: 0;
+  border: 1px solid var(--border-color);
+}
+
+.viewBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 24px;
+  border: none;
+  border-radius: 15px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+.viewBtn:hover {
+  color: var(--text-primary);
+  background-color: var(--bg-button-hover);
+}
+
+.viewBtn.active {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+}
+
+/* ── Group / sort button ─────────────────────────────────────── */
+.groupBtn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-secondary);
+  cursor: pointer;
+  font-size: 13px;
+  transition: background-color 0.1s, color 0.1s;
+}
+
+/* ── Standalone toggle button ─────────────────────────────────── */
+.groupToggleBtn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-sidebar);
+  border: 1px solid var(--border-color);
+  border-radius: 20px;
+  width: 38px;
+  height: 34px;
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition: background-color 0.1s, color 0.1s, border-color 0.1s;
+  flex-shrink: 0;
+}
+
+.groupToggleBtn:hover {
+  background-color: var(--bg-button-hover);
+  color: var(--text-primary);
+}
+
+.groupToggleBtn.active {
+  background-color: rgba(255, 255, 255, 0.15);
+  color: var(--text-primary);
+  border-color: rgba(255, 255, 255, 0.05); /* slightly subtle to match viewGroup active */
+}
+
+/* ── Separator ───────────────────────────────────────────────── */
+.sep {
+  width: 1px;
+  height: 18px;
+  background-color: var(--border-color);
+  flex-shrink: 0;
+  margin: 0 3px;
+}
+
+/* ── Search box ──────────────────────────────────────────────── */
+.searchBox {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background-color: var(--bg-sidebar);
+  border: 1px solid transparent;
+  border-radius: 20px;
+  /* Match the exact height of the viewGroup pill */
+  height: 34px;
+  padding: 0 12px;
+  width: 200px;
+  transition: background-color 0.15s, border-color 0.15s, width 0.2s ease;
+  flex-shrink: 0;
+  border: 1px solid var(--border-color);
+}
+
+.searchBox:focus-within {
+  border-color: rgba(255, 255, 255, 0.14);
+  width: 240px;
+}
+
+.searchIcon {
+  color: var(--text-tertiary);
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.searchInput {
+  flex: 1;
+  background: none;
+  border: none;
+  outline: none;
+  color: var(--text-primary);
+  font-size: 13px;
+  caret-color: var(--color-accent-blue);
+  min-width: 0;
+}
+
+.searchInput::placeholder {
+  color: var(--text-tertiary);
+}
+
+/* ── Loading indicator ───────────────────────────────────────── */
+.loader {
+  font-size: 12px;
+  color: var(--text-tertiary);
+}

@@ -1,0 +1,400 @@
+/* === Grid View === */
+.grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(90px, 1fr));
+  gap: 4px;
+  padding: 16px;
+  align-content: start;
+}
+
+/* === List View === */
+.list {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Scroll container for the virtual list body (below the sticky header) */
+.virtualScroll {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.listHeader {
+  display: grid;
+  grid-template-columns: 1fr 150px 80px 100px;
+  gap: 0;
+  padding: 0 16px;
+  height: 28px;
+  align-items: center;
+  border-bottom: 1px solid var(--border-color);
+  background-color: var(--bg-main);
+  position: sticky;
+  top: 0;
+  z-index: 1;
+}
+
+.listHeaderCell {
+  font-size: 12px;
+  color: var(--text-secondary);
+  font-weight: 500;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+}
+
+.listHeaderCell:hover {
+  color: var(--text-primary);
+}
+
+/* === Empty States === */
+.emptyWrapper {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  min-height: 300px;
+}
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 40px;
+  text-align: center;
+}
+
+.emptyIcon {
+  font-size: 56px;
+  line-height: 1;
+  opacity: 0.3;
+}
+
+.emptyTitle {
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.emptySubtitle {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  max-width: 280px;
+  line-height: 1.5;
+}
+
+.emptyConnectBtn {
+  margin-top: 8px;
+  padding: 8px 20px;
+  border-radius: 8px;
+  border: none;
+  background-color: var(--color-accent-blue);
+  color: white;
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background-color 0.15s;
+}
+
+.emptyConnectBtn:hover {
+  background-color: var(--color-accent-blue-hover);
+}
+
+/* === Group View === */
+.groupedView {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  gap: 24px;
+}
+
+.groupSection {
+  display: flex;
+  flex-direction: column;
+}
+
+.groupHeader {
+  display: flex;
+  align-items: center;
+  border-bottom: 1px solid var(--border-toolbar);
+  padding: 0 0 6px 4px;
+  margin-bottom: 12px;
+}
+
+.groupHeaderTitle {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  text-transform: capitalize;
+  letter-spacing: 0.3px;
+}
+
+/* Fix inner container padding when inside groups to avoid double padding */
+.groupSection .list {
+  padding: 0;
+}
+
+.groupSection .grid {
+  padding: 0;
+}
+
+.columnsView {
+  display: flex;
+  flex-direction: row;
+  height: 100%;
+  overflow-x: auto;
+}
+
+.columnCol {
+  flex: 0 0 240px; /* fixed column width */
+  min-width: 240px;
+  height: 100%;
+  background-color: transparent;
+  border-right: 1px solid var(--border-color);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.columnItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  font-size: 13px;
+  color: var(--text-primary);
+  border-radius: 4px;
+  margin: 2px 4px;
+}
+
+.colItemLeft {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.columnItemActive {
+  background-color: var(--color-accent-blue);
+  color: white;
+}
+
+.columnItemDrop {
+  background-color: rgba(0, 122, 255, 0.25);
+  outline: 2px solid var(--color-accent-blue);
+  outline-offset: -2px;
+}
+
+.colIcon {
+  font-size: 16px;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* Thumbnail image shown in column view for images/videos */
+.colThumb {
+  width: 20px;
+  height: 20px;
+  object-fit: cover;
+  border-radius: 3px;
+  display: block;
+}
+
+.colName {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.colArrow {
+  font-size: 15px;
+  opacity: 0.5;
+  color: inherit;
+}
+
+.columnItemActive .colArrow {
+  opacity: 1;
+}
+
+/* === Gallery View === */
+.galleryView {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+}
+
+.galleryPreviewArea {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: var(--bg-main);
+  border-bottom: 1px solid var(--border-color);
+  min-height: 200px;
+}
+
+.galleryPreviewContent {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+}
+
+.galleryPreviewName {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.galleryStripWrapper {
+  height: 160px;
+  flex-shrink: 0;
+  overflow-y: hidden;
+  overflow-x: auto;
+  background-color: var(--bg-toolbar);
+  padding: 16px;
+}
+
+.galleryStrip {
+  display: flex;
+  gap: 16px;
+  height: 100%;
+  flex-wrap: nowrap;
+}
+
+.galleryStrip > div {
+  flex: 0 0 auto;
+  width: 100px; /* Force thumbnail width so they don't squash */
+}
+
+/* Gallery video player — same style as sidebar PreviewPanel */
+.galleryVideoWrapper {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.galleryPreviewVideo {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: 6px;
+  display: block;
+}
+
+.galleryPlayBtn {
+  position: absolute;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 54px;
+  height: 54px;
+  border-radius: 50%;
+  border: none;
+  background-color: var(--bg-main);
+  color: var(--text-primary);
+  cursor: pointer;
+  opacity: 0.9;
+  transition: opacity 0.15s, transform 0.12s;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.55);
+}
+
+.galleryPlayBtn:hover { opacity: 1; transform: scale(1.09); }
+.galleryPlayBtn:active { transform: scale(0.95); }
+
+.galleryVideoWrapper:not(:hover) .galleryPlayBtn.galleryPlaying {
+  opacity: 0;
+}
+
+/* ── Gallery video timeline scrubber ──────────────────── */
+.galleryVideoTimeline {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 20px 12px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  opacity: 0;
+  transition: opacity 0.18s;
+  cursor: pointer;
+  background: linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 100%);
+}
+
+.galleryVideoWrapper:hover .galleryVideoTimeline {
+  opacity: 1;
+}
+
+.galleryVideoTimeLabel {
+  font-size: 11px;
+  color: rgba(255,255,255,0.85);
+  letter-spacing: 0.3px;
+  line-height: 1;
+  user-select: none;
+}
+
+.galleryVideoTimelineTrack {
+  position: relative;
+  height: 3px;
+  background: rgba(255,255,255,0.28);
+  border-radius: 2px;
+  overflow: visible;
+}
+
+.galleryVideoTimelineProgress {
+  height: 100%;
+  background: #fff;
+  border-radius: 2px;
+  pointer-events: none;
+}
+
+.galleryVideoTimelineKnob {
+  position: absolute;
+  top: 50%;
+  width: 11px;
+  height: 11px;
+  background: #fff;
+  border-radius: 50%;
+  transform: translate(-50%, -50%) scale(0);
+  box-shadow: 0 1px 4px rgba(0,0,0,0.5);
+  pointer-events: none;
+  transition: transform 0.15s;
+}
+
+.galleryVideoWrapper:hover .galleryVideoTimelineKnob {
+  transform: translate(-50%, -50%) scale(1);
+}
+
+/* Loading spinner for gallery preview area */
+.gallerySpinner {
+  width: 32px;
+  height: 32px;
+  border: 2px solid rgba(255,255,255,0.15);
+  border-top-color: var(--color-accent-blue);
+  border-radius: 50%;
+  animation: gallerySpinAnim 0.8s linear infinite;
+}
+
+@keyframes gallerySpinAnim {
+  to { transform: rotate(360deg); }
+}

@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash screen (API 21+): fondo oscuro con el logo centrado -->
+<layer-list xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Fondo: mismo color que bg-main de la web (#1C1C1E) -->
+    <item android:drawable="@color/splash_bg" />
+
+    <!-- Logo centrado -->
+    <item>
+        <bitmap
+            android:gravity="center"
+            android:src="@drawable/ic_splash_logo" />
+    </item>
+</layer-list>
