@@ -1,5 +1,7 @@
 # WiXplorer
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Explorá los archivos de tu Android desde el navegador del PC, sin cables ni software adicional.
 
 ---
@@ -51,12 +53,14 @@ build-web ──┬── build-apk ──────┐
             └── build-desktop ──┴── release (GitHub Release)
 ```
 
-1. **build-web** — compila React (`npm run build`)
-2. **build-apk** — copia `dist/` a `mobile/assets/www/` y corre `flutter build apk --release`
-3. **build-desktop** — compila binario macOS Universal con `lipo`, arma el `.app`, firma ad-hoc, cross-compila el `.exe` Windows desde el runner macOS
+1. **build-web** — lint + tests (`npm run lint`, `npm test`) y compila React (`npm run build`)
+2. **build-apk** — copia `dist/` a `mobile/assets/www/`, corre `flutter analyze` + `flutter test` y `flutter build apk --release`
+3. **build-desktop** — `go vet` + `go test`, compila binario macOS Universal con `lipo`, arma el `.app`, firma ad-hoc, cross-compila el `.exe` Windows desde el runner macOS
 4. **release** — crea el GitHub Release con los tres artefactos adjuntos
 
 > Los tags con guión (ej: `v1.1.0-beta`) se marcan automáticamente como pre-release.
+
+Además, `.github/workflows/ci.yml` corre los mismos checks (lint, vitest, `go test`, `flutter analyze`/`flutter test`) en cada push a `main` y en cada PR.
 
 ### Firma del APK con clave de producción (opcional)
 
@@ -105,7 +109,7 @@ wixplorer/
 ### Requisitos
 
 - Node.js 20+ y npm
-- Go 1.21+ (solo para el launcher MTP de escritorio)
+- Go 1.26+ (solo para el launcher MTP de escritorio)
 - Flutter 3.19+ (solo para el módulo mobile WiFi)
 - macOS con Xcode CLI Tools (para compilar el `.app` Universal)
 
@@ -114,6 +118,8 @@ wixplorer/
 ```bash
 npm install
 npm run dev          # servidor de desarrollo en http://localhost:5173
+npm run lint         # ESLint
+npm test             # tests unitarios (vitest) — parser MTP, helpers
 npm run build        # genera dist/
 ```
 
@@ -123,6 +129,7 @@ npm run build        # genera dist/
 # Requiere dist/ generado previamente
 npm run build
 go run main.go
+go test .            # tests del launcher (endpoint /quit)
 
 # Generar binarios de distribución
 bash scripts/build_desktop.sh
@@ -136,6 +143,7 @@ Los binarios quedan en `dist_bin/`.
 cd mobile
 flutter pub get
 flutter run            # ejecutar en dispositivo/emulador conectado
+flutter test           # tests unitarios — validación de paths, AuthService
 flutter build apk --release
 ```
 
@@ -172,8 +180,20 @@ GET  /*                         → React SPA embebida
 | Acceso no autorizado desde la red | PIN de 6 dígitos visible solo en pantalla del teléfono |
 | Fuerza bruta del PIN | Bloqueo tras 5 intentos fallidos |
 | Token robado | Se invalida al detener el servidor |
-| Path traversal | Validación contra lista de raíces permitidas en `FileService` |
+| Path traversal | `FileService` resuelve `..` y symlinks y exige que la ruta real quede dentro de una raíz permitida (comparación por componentes, no por prefijo) |
+| Launcher de escritorio expuesto a la red | Go escucha solo en `127.0.0.1`; `/quit` solo acepta `POST` desde el propio origen |
 | Proceso eliminado en segundo plano (Android) | Foreground Service con notificación persistente |
+
+### Limitaciones conocidas
+
+El modo WiFi está pensado para **redes domésticas de confianza**. No es apto para WiFi públicas o compartidas:
+
+- **HTTP sin TLS.** El PIN, el token de sesión y los archivos viajan en claro. Cualquiera en la misma red con un sniffer puede verlos y reutilizar el token mientras el servidor siga activo.
+- **Token en query param.** Imágenes y videos se cargan con `?token=` en la URL (los elementos `<img>`/`<video>` no pueden mandar headers). Esas URLs pueden quedar en el historial del navegador o en logs de proxies.
+- **CORS `*`.** El servidor acepta requests de cualquier origen. Una página web maliciosa no puede obtener el token por sí sola, pero si lo consigue (p.ej. por las vías anteriores) puede usar la API desde el navegador de la víctima.
+- **PIN de 6 dígitos.** El bloqueo tras 5 intentos fallidos dura 30 segundos, lo que frena pero no impide un ataque de fuerza bruta sostenido mientras el servidor esté encendido.
+
+Recomendación: encender el servidor solo mientras se usa y apagarlo al terminar — eso invalida PIN y token.
 
 ---
 
@@ -197,3 +217,7 @@ GET  /*                         → React SPA embebida
 - Virtual scroll (`@tanstack/react-virtual`) en vista lista
 - `React.memo` en todos los ítems del explorador
 - Service Worker — assets JS/CSS cacheados localmente tras la primera carga
+
+## Licencia
+
+Apache 2.0. Ver [LICENSE](LICENSE).

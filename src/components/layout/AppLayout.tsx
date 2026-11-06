@@ -17,6 +17,7 @@ import NewFolderDialog from '../contextmenu/NewFolderDialog';
 import { toast } from 'sonner';
 import { isSelfHosted } from '../../services/network/selfHosted';
 import QuitScreen from '../quit/QuitScreen';
+import { errorMessage, errorName } from '../../utils/errors';
 
 export type ViewMode = 'grid' | 'list' | 'columns' | 'gallery';
 export type SortMode = 'none' | 'name' | 'date' | 'size' | 'kind';
@@ -237,11 +238,11 @@ const AppLayout: React.FC = () => {
       setZipProgress(100);
       setTimeout(() => setZipProgress(null), 1200);
       toast.success('ZIP descargado');
-    } catch (e: any) {
-      if (e?.name !== 'AbortError') {
-        const msg = (e instanceof RangeError || (e?.message ?? '').toLowerCase().includes('allocation'))
+    } catch (e) {
+      if (errorName(e) !== 'AbortError') {
+        const msg = (e instanceof RangeError || (errorMessage(e) ?? '').toLowerCase().includes('allocation'))
           ? 'Los archivos seleccionados son demasiado grandes para comprimir en memoria. Intentá con menos archivos o descargalos de a uno.'
-          : 'Error al crear ZIP: ' + (e?.message ?? '');
+          : 'Error al crear ZIP: ' + (errorMessage(e) ?? '');
         toast.error(msg);
       }
       setZipProgress(null);
@@ -271,10 +272,10 @@ const AppLayout: React.FC = () => {
       await activeDeleteFiles(selectedFiles);
       setSelectedFiles([]);
       toast.success(`${names} eliminado`);
-    } catch (e: any) {
-      toast.error('Error al eliminar: ' + (e?.message ?? ''));
+    } catch (e) {
+      toast.error('Error al eliminar: ' + (errorMessage(e) ?? ''));
     }
-  }, [selectedFiles, mtpState]);
+  }, [selectedFiles, isNetworkMode, networkState.deleteFiles, mtpState.deleteFiles]);
 
   /* ── Inline Rename ──────────────────────────────────────────────────── */
   const handleInlineRenameConfirm = useCallback(async (file: FileItem, newName: string) => {
@@ -282,8 +283,8 @@ const AppLayout: React.FC = () => {
     try {
       await mtpState.renameFile(file, newName);
       toast.success('Renombrado correctamente');
-    } catch (e: any) {
-      toast.error('Error al renombrar: ' + (e?.message ?? ''));
+    } catch (e) {
+      toast.error('Error al renombrar: ' + (errorMessage(e) ?? ''));
     }
   }, [mtpState]);
 
@@ -307,8 +308,8 @@ const AppLayout: React.FC = () => {
       setClipboard(null);
       setSelectedFiles([]);
       toast.success('Archivos movidos');
-    } catch (e: any) {
-      toast.error('Error al mover: ' + (e?.message ?? ''));
+    } catch (e) {
+      toast.error('Error al mover: ' + (errorMessage(e) ?? ''));
     }
   }, [clipboard, primarySelected, mtpState]);
 
@@ -318,8 +319,8 @@ const AppLayout: React.FC = () => {
     try {
       await mtpState.createFolder(name);
       toast.success(`Carpeta "${name}" creada`);
-    } catch (e: any) {
-      toast.error('Error al crear carpeta: ' + (e?.message ?? ''));
+    } catch (e) {
+      toast.error('Error al crear carpeta: ' + (errorMessage(e) ?? ''));
     }
   }, [mtpState]);
 
@@ -336,8 +337,8 @@ const AppLayout: React.FC = () => {
       await mtpState.moveFiles(filesToMove, targetFolder);
       setSelectedFiles([]);
       toast.success(`${filesToMove.length > 1 ? filesToMove.length + ' archivos' : `"${filesToMove[0].name}"`} movido${filesToMove.length > 1 ? 's' : ''}`);
-    } catch (e: any) {
-      toast.error('Error al mover: ' + (e?.message ?? ''));
+    } catch (e) {
+      toast.error('Error al mover: ' + (errorMessage(e) ?? ''));
     }
   }, [mtpState]);
 
@@ -433,7 +434,7 @@ const AppLayout: React.FC = () => {
   }, []);
 
   /* ── File list with sort ────────────────────────────────────────────── */
-  let visibleFiles = searchQuery
+  const visibleFiles = searchQuery
     ? activeFiles.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()))
     : [...activeFiles];
 
@@ -458,7 +459,7 @@ const AppLayout: React.FC = () => {
 
   const handleQuit = useCallback(() => {
     setQuitting(true);
-    fetch('/quit').catch(() => {});
+    fetch('/quit', { method: 'POST' }).catch(() => {});
   }, []);
 
   const showError = activeError && !errorDismissed;

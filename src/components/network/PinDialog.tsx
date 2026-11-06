@@ -30,16 +30,25 @@ const PinDialog: React.FC<PinDialogProps> = ({
     inputRefs.current[0]?.focus();
   }, []);
 
-  useEffect(() => {
+  // Ante un nuevo error: limpiar los dígitos y sacudir. Se ajusta el estado
+  // durante el render (patrón recomendado por React) en lugar de en un effect.
+  const [prevAuthError, setPrevAuthError] = useState(authError);
+  if (authError !== prevAuthError) {
+    setPrevAuthError(authError);
     if (authError) {
       setShake(true);
       setDigits(Array(PIN_LENGTH).fill(''));
-      setTimeout(() => {
-        setShake(false);
-        inputRefs.current[0]?.focus();
-      }, 500);
     }
-  }, [authError]);
+  }
+
+  useEffect(() => {
+    if (!shake) return;
+    const timer = setTimeout(() => {
+      setShake(false);
+      inputRefs.current[0]?.focus();
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [shake]);
 
   const submit = (pin: string) => {
     if (pin.length === PIN_LENGTH && !isAuthenticating) onConfirm(pin);

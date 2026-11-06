@@ -1,3 +1,5 @@
+import { errorName } from '../../utils/errors';
+
 export interface NetworkFileData {
   name: string;
   path: string;
@@ -154,8 +156,8 @@ export class NetworkClient {
           startIn: 'downloads',
         });
         fsWritable = await handle.createWritable();
-      } catch (e: any) {
-        if (e?.name === 'AbortError') return; // usuario canceló el diálogo
+      } catch (e) {
+        if (errorName(e) === 'AbortError') return; // usuario canceló el diálogo
         // Otro error (permisos, etc.) → continuar sin FSAA
       }
     }

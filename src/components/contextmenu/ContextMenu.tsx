@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useLayoutEffect, useRef } from 'react';
 import styles from './ContextMenu.module.css';
 import type { FileItem } from '../../hooks/useMTPDevice';
 
@@ -32,17 +32,16 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
   const count = selectedFiles.length;
   const hasFiles = selectedFiles.some(f => !f.isFolder);
 
-  // Adjust position so menu never goes off-screen
-  const [pos, setPos] = React.useState({ x, y });
-  useEffect(() => {
-    if (!menuRef.current) return;
-    const { offsetWidth: w, offsetHeight: h } = menuRef.current;
+  // Adjust position so menu never goes off-screen. Se mide y se ajusta el
+  // DOM antes del paint, sin pasar por estado (evita un render extra).
+  useLayoutEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const { offsetWidth: w, offsetHeight: h } = menu;
     const vw = window.innerWidth;
     const vh = window.innerHeight;
-    setPos({
-      x: x + w > vw ? Math.max(0, vw - w - 8) : x,
-      y: y + h > vh ? Math.max(0, vh - h - 8) : y,
-    });
+    menu.style.left = `${x + w > vw ? Math.max(0, vw - w - 8) : x}px`;
+    menu.style.top = `${y + h > vh ? Math.max(0, vh - h - 8) : y}px`;
   }, [x, y]);
 
   // Close on outside click or Escape
@@ -76,7 +75,7 @@ const ContextMenu: React.FC<ContextMenuProps> = ({
     <div
       ref={menuRef}
       className={styles.menu}
-      style={{ left: pos.x, top: pos.y }}
+      style={{ left: x, top: y }}
       onContextMenu={e => e.preventDefault()}
     >
       {count > 0 && (

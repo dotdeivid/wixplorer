@@ -1,7 +1,8 @@
 import React, { useState, useRef, useEffect, memo } from 'react';
 import styles from './FileListItem.module.css';
 import type { FileItem } from '../../hooks/useMTPDevice';
-import { SmallFolderIcon, getFileEmoji } from './FileItem';
+import { SmallFolderIcon } from './FileItem';
+import { getFileEmoji } from './fileEmoji';
 import { useThumbnail, isImageFile } from '../../hooks/useThumbnail';
 
 interface FileListItemProps {
@@ -48,7 +49,7 @@ function getKind(file: FileItem): string {
   return kinds[ext] ?? (ext ? ext.toUpperCase() : 'Documento');
 }
 
-const noopThumb = async (_h: number): Promise<Blob | null> => null;
+const noopThumb = async (): Promise<Blob | null> => null;
 
 /* ─── Inline rename input ────────────────────────────────────────────────── */
 const InlineRenameInput: React.FC<{

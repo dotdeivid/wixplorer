@@ -144,7 +144,7 @@ export class USBManager {
       await device.releaseInterface(ifaceNumber);
       await device.close();
       return hasStorages;
-    } catch (err) {
+    } catch {
       try { await device.releaseInterface(ifaceNumber); } catch { /* ignore */ }
       try { await device.close(); } catch { /* ignore */ }
       return false;

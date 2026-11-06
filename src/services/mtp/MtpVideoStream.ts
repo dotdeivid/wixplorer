@@ -16,7 +16,7 @@ interface TrackHandle {
   receivedLastSegment: boolean;
 }
 
-function drainTrack(track: TrackHandle, _ms: MediaSource) {
+function drainTrack(track: TrackHandle) {
   if (track.appending || track.queue.length === 0) return;
   track.appending = true;
   try {
@@ -82,7 +82,7 @@ export function createMtpVideoStream(
 
         sb.addEventListener('updateend', () => {
           handle.appending = false;
-          if (handle.queue.length > 0) drainTrack(handle, ms);
+          if (handle.queue.length > 0) drainTrack(handle);
           else tryEndStream(tracks, ms);
         });
 
@@ -103,7 +103,7 @@ export function createMtpVideoStream(
         const handle = tracks.find(t => t.id === seg.id);
         if (!handle) continue;
         handle.queue.push(seg.buffer);
-        drainTrack(handle, ms);
+        drainTrack(handle);
       }
     };
 
@@ -118,7 +118,7 @@ export function createMtpVideoStream(
       if (signal?.aborted) return;
       if (is_last) handle.receivedLastSegment = true;
       handle.queue.push(buffer);
-      drainTrack(handle, ms);
+      drainTrack(handle);
       if (is_last) tryEndStream(tracks, ms);
     };
 

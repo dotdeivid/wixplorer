@@ -1,5 +1,7 @@
 import 'dart:io';
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:mime/mime.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 class FileItem {
@@ -180,7 +182,8 @@ class FileService {
   /// Lanza [FileSystemException] si el path está fuera del almacenamiento
   /// permitido o si la entidad no existe.
   Future<void> deleteItem(String path) async {
-    final resolved = _sanitizePath(path);
+    // allowRoot: false — nunca borrar una raíz entera (p.ej. /storage/emulated/0)
+    final resolved = resolveWithinRoots(path, _allowedRoots, allowRoot: false);
     final type = await FileSystemEntity.type(resolved);
     if (type == FileSystemEntityType.directory) {
       await Directory(resolved).delete(recursive: true);
@@ -211,15 +214,66 @@ class FileService {
     }
   }
 
-  String _sanitizePath(String path) {
-    final normalized = Uri.file(path).toFilePath();
-    final resolved = File(normalized).absolute.path;
+  String _sanitizePath(String path) => resolveWithinRoots(path, _allowedRoots);
 
-    final allowed = _allowedRoots.any((root) => resolved.startsWith(root));
-    if (!allowed) {
-      throw const FileSystemException('Acceso denegado — path fuera del almacenamiento permitido');
+  /// Verifica que [path] quede dentro de alguna de las [roots] y lo devuelve
+  /// normalizado. Lanza [FileSystemException] si no.
+  ///
+  /// 1. La validación usa la ruta real ([_realPath]: sin `..` y con symlinks
+  ///    resueltos), así un link dentro del almacenamiento que apunte afuera
+  ///    no sirve para escapar.
+  /// 2. Compara por componentes con `p.isWithin()` (no por prefijo de texto),
+  ///    así `/storage/emulated/0-evil` no pasa por `/storage/emulated/0`.
+  ///
+  /// Con [allowRoot] en false, la raíz misma también se rechaza (solo se
+  /// aceptan rutas estrictamente dentro de ella).
+  ///
+  /// Devuelve la ruta canonicalizada (no la real) para que los paths que ve
+  /// el cliente sigan colgando de la raíz que conoce.
+  @visibleForTesting
+  static String resolveWithinRoots(
+    String path,
+    Iterable<String> roots, {
+    bool allowRoot = true,
+  }) {
+    final resolved = _realPath(path);
+    if (resolved == null ||
+        !roots
+            .map(_realPath)
+            .whereType<String>()
+            .any(
+              (root) =>
+                  (allowRoot && resolved == root) || p.isWithin(root, resolved),
+            )) {
+      throw const FileSystemException(
+        'Acceso denegado — path fuera del almacenamiento permitido',
+      );
     }
-    return resolved;
+    return p.canonicalize(path);
+  }
+
+  /// Ruta absoluta, normalizada y con symlinks resueltos.
+  ///
+  /// `p.canonicalize()` solo trabaja sobre el texto, así que los symlinks se
+  /// resuelven aparte. Si el path no existe todavía, se resuelve el ancestro
+  /// existente más cercano y se le agrega el resto. Devuelve null si no se
+  /// puede resolver (p.ej. un symlink roto) — el caller lo trata como denegado.
+  static String? _realPath(String path) {
+    var existing = p.canonicalize(path);
+    final missing = <String>[];
+    while (FileSystemEntity.typeSync(existing, followLinks: false) ==
+        FileSystemEntityType.notFound) {
+      final parent = p.dirname(existing);
+      if (parent == existing) break;
+      missing.insert(0, p.basename(existing));
+      existing = parent;
+    }
+    try {
+      final real = File(existing).resolveSymbolicLinksSync();
+      return p.joinAll([real, ...missing]);
+    } on FileSystemException {
+      return null;
+    }
   }
 
   static String _resolveStorageRoot(String appSubdir) {

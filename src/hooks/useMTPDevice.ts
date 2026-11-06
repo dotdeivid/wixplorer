@@ -3,6 +3,7 @@ import { MtpClient } from '../services/mtp/MtpClient';
 import { createMtpVideoStream, type MtpVideoStreamResult } from '../services/mtp/MtpVideoStream';
 import { USBManager } from '../services/usb/USBManager';
 import { ThumbCache } from '../services/cache/ThumbCache';
+import { errorMessage, errorName } from '../utils/errors';
 
 export interface FileItem {
   id: number;
@@ -28,9 +29,9 @@ const client = new MtpClient();
  * Convierte errores técnicos de descarga en mensajes comprensibles para el usuario.
  * @param hasFsaa - true si se usó File System Access API (escritura directa al disco)
  */
-function friendlyDownloadError(err: any): string {
-  const name: string = err?.name ?? '';
-  const msg: string  = (err?.message ?? '').toLowerCase();
+function friendlyDownloadError(err: unknown): string {
+  const name: string = errorName(err) ?? '';
+  const msg: string  = (errorMessage(err) ?? '').toLowerCase();
 
   // Memoria insuficiente — solo ocurre en el path de fallback (sin FSAA)
   if (err instanceof RangeError || msg.includes('array buffer') || msg.includes('allocation failed') || msg.includes('out of memory')) {
@@ -54,7 +55,7 @@ function friendlyDownloadError(err: any): string {
       + 'Intentá en una ventana normal.';
   }
 
-  return err?.message || 'Error al descargar';
+  return errorMessage(err) || 'Error al descargar';
 }
 
 export function useMTPDevice() {
@@ -166,9 +167,9 @@ export function useMTPDevice() {
 
       setFiles(validFiles);
       setFolderCache(prev => ({ ...prev, [parentId]: validFiles }));
-    } catch (err: any) {
+    } catch (err) {
       console.error(err);
-      setError(err.message || 'Failed to refresh files');
+      setError(errorMessage(err) || 'Failed to refresh files');
     } finally {
       setIsLoading(false);
     }
@@ -209,8 +210,8 @@ export function useMTPDevice() {
       await client.connect();
       await afterConnect();
       scanDevices();
-    } catch (err: any) {
-      setError(err.message || 'Connection failed');
+    } catch (err) {
+      setError(errorMessage(err) || 'Connection failed');
       try { await client.disconnect(); } catch { /* ignore */ }
       setIsConnected(false); setDeviceName(''); setFiles([]); setCurrentPath([]); setForwardStack([]);
     } finally {
@@ -225,8 +226,8 @@ export function useMTPDevice() {
     try {
       await client.connectTo(device.usbDevice);
       await afterConnect();
-    } catch (err: any) {
-      setError(err.message || 'Connection failed');
+    } catch (err) {
+      setError(errorMessage(err) || 'Connection failed');
       try { await client.disconnect(); } catch { /* ignore */ }
       setIsConnected(false); setDeviceName(''); setFiles([]); setCurrentPath([]); setForwardStack([]);
     } finally {
@@ -323,8 +324,8 @@ export function useMTPDevice() {
           startIn: 'downloads',
         });
         fsWritable = await handle.createWritable();
-      } catch (e: any) {
-        if (e?.name === 'AbortError') return; // usuario canceló el diálogo
+      } catch (e) {
+        if (errorName(e) === 'AbortError') return; // usuario canceló el diálogo
         // Otro error → continuar sin FSAA (fallback Blob)
       }
     }
@@ -356,8 +357,8 @@ export function useMTPDevice() {
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
       }
-    } catch (err: any) {
-      if (err.name === 'AbortError') {
+    } catch (err) {
+      if (errorName(err) === 'AbortError') {
         // Cancelado por el usuario — limpiar endpoint USB para la próxima descarga
         await fsWritable?.abort().catch(() => {});
         await client.clearHalts();
@@ -385,9 +386,9 @@ export function useMTPDevice() {
     try {
       await navigator.usb?.requestDevice({ filters: [] });
       await scanDevices();
-    } catch (e: any) {
-      if (e?.name !== 'NotFoundError') {
-        setError(e.message || 'Cancelled');
+    } catch (e) {
+      if (errorName(e) !== 'NotFoundError') {
+        setError(errorMessage(e) || 'Cancelled');
       }
     }
   }, [scanDevices]);
@@ -470,8 +471,8 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err: any) {
-      setError(err.message || 'Error al eliminar');
+    } catch (err) {
+      setError(errorMessage(err) || 'Error al eliminar');
       throw err;
     } finally {
       setIsLoading(false);
@@ -497,8 +498,8 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err: any) {
-      setError(err.message || 'Error al mover archivos');
+    } catch (err) {
+      setError(errorMessage(err) || 'Error al mover archivos');
       throw err;
     } finally {
       setIsLoading(false);
@@ -519,8 +520,8 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err: any) {
-      setError(err.message || 'Error al renombrar');
+    } catch (err) {
+      setError(errorMessage(err) || 'Error al renombrar');
       throw err;
     } finally {
       setIsLoading(false);
@@ -541,8 +542,8 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err: any) {
-      setError(err.message || 'Error al crear carpeta');
+    } catch (err) {
+      setError(errorMessage(err) || 'Error al crear carpeta');
       throw err;
     } finally {
       setIsLoading(false);
@@ -576,8 +577,8 @@ export function useMTPDevice() {
       setFiles([]);
       await refreshFiles(currentStorageId.current, target.id);
       return true;
-    } catch (e: any) {
-      setError(e.message || 'Error al navegar a la carpeta');
+    } catch (e) {
+      setError(errorMessage(e) || 'Error al navegar a la carpeta');
       return false;
     } finally {
       setIsLoading(false);
