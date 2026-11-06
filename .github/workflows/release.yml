@@ -42,6 +42,9 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     needs: build-web
+    env:
+      # `secrets` no se puede usar en el `if` de un paso; se expone vía env.
+      HAS_KEYSTORE: ${{ secrets.KEYSTORE_BASE64 != '' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -65,7 +68,7 @@ jobs:
       # Si el repo tiene secrets de keystore, firmar con clave de producción.
       # Si no, Flutter usa la debug key (válida para distribución directa/APK sideload).
       - name: Configurar keystore (opcional)
-        if: ${{ secrets.KEYSTORE_BASE64 != '' }}
+        if: env.HAS_KEYSTORE == 'true'
         working-directory: mobile
         run: |
           echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > android/app/keystore.jks
