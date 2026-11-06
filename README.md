@@ -1,5 +1,7 @@
 # WiXplorer
 
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
 Explorá los archivos de tu Android desde el navegador del PC, sin cables ni software adicional.
 
 ---
@@ -215,3 +217,7 @@ Recomendación: encender el servidor solo mientras se usa y apagarlo al terminar
 - Virtual scroll (`@tanstack/react-virtual`) en vista lista
 - `React.memo` en todos los ítems del explorador
 - Service Worker — assets JS/CSS cacheados localmente tras la primera carga
+
+## Licencia
+
+Apache 2.0. Ver [LICENSE](LICENSE).
