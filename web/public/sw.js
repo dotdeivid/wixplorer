@@ -4,8 +4,8 @@
 
 const CACHE = 'pt-v1';
 
-// Ruta base de la app: el SW vive en <base>sw.js. Es '/' en el launcher y en
-// el teléfono, y '/wixplorer/' en GitHub Pages.
+// Ruta base de la app: el SW vive en <base>sw.js. Es '/' en el teléfono y
+// '/wixplorer/' en GitHub Pages.
 const BASE = new URL('./', self.location).pathname;
 
 self.addEventListener('install', () => self.skipWaiting());

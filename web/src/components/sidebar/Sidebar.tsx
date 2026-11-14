@@ -3,12 +3,8 @@ import styles from './Sidebar.module.css';
 import type { AvailableDevice } from '../../hooks/useMTPDevice';
 import type { NetworkDevice } from '../../hooks/useNetworkDevice';
 import {
-  House, Clock, FileText, Download, Image, Plus, X, LogOut, Usb, Wifi, CircleHelp, Info,
+  House, Clock, FileText, Download, Image, Plus, X, Usb, Wifi, CircleHelp, Info,
 } from 'lucide-react';
-
-// true solo en build de producción en localhost → Go launcher.
-// false en dev (Vite), false en modo WiFi (selfHosted).
-const IS_GO_LAUNCHER = import.meta.env.PROD && window.location.hostname === 'localhost';
 
 interface SidebarProps {
   /** Hay un dispositivo conectado (USB o WiFi). */
@@ -33,7 +29,6 @@ interface SidebarProps {
   onNavigateToFavorite?: (folderName: string) => Promise<boolean>;
   /** true cuando la app está siendo servida por el teléfono (modo auto-hospedado) */
   selfHosted: boolean;
-  onQuit?: () => void;
 }
 
 const ICON_SIZE   = 15;
@@ -65,7 +60,6 @@ const Sidebar: React.FC<SidebarProps> = ({
   onSectionChange,
   onNavigateToFavorite,
   selfHosted,
-  onQuit,
 }) => {
   const [active, setActive] = React.useState<string | null>('home');
 
@@ -210,13 +204,6 @@ const Sidebar: React.FC<SidebarProps> = ({
           {icon(Info)}
           <span>Acerca de WiXplorer</span>
         </button>
-        {/* Botón Salir — solo en Go launcher (prod + localhost) */}
-        {IS_GO_LAUNCHER && (
-          <button type="button" className={`${styles.footerBtn} ${styles.quitBtn}`} onClick={onQuit}>
-            <LogOut size={ICON_SIZE} strokeWidth={ICON_STROKE} aria-hidden="true" />
-            <span>Salir</span>
-          </button>
-        )}
       </div>
     </nav>
   );

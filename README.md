@@ -11,11 +11,11 @@ Explorá los archivos de tu Android desde el navegador del PC, sin cables ni sof
 | Modo | Quién sirve los archivos | Cómo conectar |
 |------|--------------------------|---------------|
 | **WiFi** | App WiXplorer en el teléfono | Abrís el navegador del PC y entrás a la IP que muestra la app; ingresás el PIN que aparece en pantalla |
-| **USB / MTP** (macOS) | Protocolo MTP del teléfono | Entrás a **https://dotdeivid.github.io/wixplorer/** con Chrome o Edge (o abrís `WiXplorer.app` para usarlo sin internet), conectás el cable y seleccionás "Transferencia de archivos" en el teléfono |
+| **USB / MTP** (macOS) | Protocolo MTP del teléfono | Entrás a **https://dotdeivid.github.io/wixplorer/** con Chrome o Edge, conectás el cable y seleccionás "Transferencia de archivos" en el teléfono |
 
 > **WiFi no requiere ningún software en la PC.** La app mobile levanta un servidor HTTP con la interfaz web embebida; solo necesitás un navegador. Funciona en cualquier sistema.
 >
-> **El modo USB es para macOS** y no necesita descargar nada: la versión publicada en GitHub Pages sirve por `https://`, que es lo que pide WebUSB. `WiXplorer.app` queda para usarlo sin conexión a internet. Es para macOS que no lee Android por cable de forma nativa. En Windows el Explorador ya muestra el teléfono, y Chrome no puede usar WebUSB con un dispositivo tomado por el driver MTP del sistema, así que no se distribuye un launcher para Windows.
+> **El modo USB es web y pensado para macOS**, que no lee Android por cable de forma nativa. No hay que descargar nada: la versión publicada en GitHub Pages sirve por `https://`, que es lo que pide WebUSB, y en el teléfono no hace falta instalar la app. En Windows el Explorador ya muestra el teléfono, y Chrome no puede usar WebUSB con un dispositivo tomado por el driver MTP del sistema; ahí se usa el modo WiFi.
 
 ---
 
@@ -24,7 +24,7 @@ Explorá los archivos de tu Android desde el navegador del PC, sin cables ni sof
 | Artefacto | Plataforma | Para qué sirve |
 |-----------|-----------|----------------|
 | APK de release | Android | Servidor WiFi — instalar en el teléfono |
-| `WiXplorer.app` | macOS (Universal) | Modo MTP por USB |
+| Versión web | Navegador (Chrome/Edge) | Modo USB — https://dotdeivid.github.io/wixplorer/ |
 
 ---
 
@@ -54,23 +54,22 @@ El CI corre en paralelo y publica los artefactos en la pestaña **Releases** del
 | Artefacto | Qué contiene |
 |-----------|-------------|
 | `WiXplorer.apk` | App Android con la UI web embebida |
-| `WiXplorer_mac.zip` | `WiXplorer.app` Universal (arm64 + amd64) |
+
+La versión web no forma parte del release: se publica sola en GitHub Pages con cada merge a `main`.
 
 ### Pipeline del CI (`.github/workflows/release.yml`)
 
 ```
-build-web ──┬── build-apk ──────┐
-            └── build-desktop ──┴── release (GitHub Release)
+build-web ── build-apk ── release (GitHub Release)
 ```
 
 1. **build-web** — lint + tests (`npm run lint`, `npm test`) y compila React (`npm run build`)
 2. **build-apk** — copia `web/dist/` a `mobile/assets/www/`, corre `flutter analyze` + `flutter test` y `flutter build apk --release`
-3. **build-desktop** — `go vet` + `go test` y `launcher/scripts/build.sh`: binario macOS Universal con `lipo`, `.app` firmado ad-hoc y ZIP
-4. **release** — crea el GitHub Release con el APK y el `.app`
+3. **release** — crea el GitHub Release con el APK
 
 > Los tags con guión (ej: `v1.1.0-beta`) se marcan automáticamente como pre-release.
 
-Además, `.github/workflows/ci.yml` corre los mismos checks (lint, vitest, `go test`, `flutter analyze`/`flutter test`) en cada push a `main` y en cada PR.
+Además, `.github/workflows/ci.yml` corre los mismos checks (lint, vitest, `flutter analyze`/`flutter test`) en cada push a `main` y en cada PR.
 
 ### Firma del APK con clave de producción (opcional)
 
@@ -87,7 +86,7 @@ Sin configuración extra el APK se firma con la debug key, válido para instalac
 
 ## Estructura del repositorio
 
-Monorepo con tres proyectos: la web, el launcher de escritorio y la app móvil. La web compilada se embebe en los otros dos.
+Monorepo con dos proyectos: la web y la app móvil. La web se publica en GitHub Pages (modo USB) y además se embebe en la app (modo WiFi).
 
 ```
 wixplorer/
@@ -98,12 +97,6 @@ wixplorer/
 │   │   └── services/     # NetworkClient, ThumbCache, MtpClient…
 │   ├── public/           # sw.js (service worker), íconos
 │   └── dist/             # Build (generado por Vite)
-├── launcher/             # Launcher de escritorio (Go) para el modo USB
-│   ├── main.go           # Sirve la web en localhost y abre el navegador
-│   ├── packaging/        # Info.plist, ícono, LEEME.txt
-│   ├── scripts/build.sh  # web → .app + ZIP (lo usan `make desktop` y release.yml)
-│   ├── dist/             # Copia de web/dist para go:embed (generada)
-│   └── dist_bin/         # Binarios de distribución (generados)
 ├── mobile/               # App Flutter (servidor HTTP + UI de control)
 │   ├── lib/
 │   │   ├── screens/      # HomeScreen
@@ -115,8 +108,6 @@ wixplorer/
 └── Makefile              # Atajos para todas las tareas (`make help`)
 ```
 
-> **Por qué `launcher/dist` es una copia:** `go:embed` no puede leer fuera del paquete Go, así que la web compilada se copia a `launcher/dist` antes de compilar. El script de escritorio, `make launcher` y el CI lo hacen solos.
-
 ---
 
 ## Desarrollo
@@ -124,15 +115,13 @@ wixplorer/
 ### Requisitos
 
 - Node.js 24+ y npm
-- Go 1.27+ (solo para el launcher de escritorio)
 - Flutter 3.50 (solo para la app móvil)
-- macOS con Xcode CLI Tools (para compilar el `.app` Universal)
 
 Todas las tareas tienen un atajo en el `Makefile` de la raíz:
 
 ```bash
 make help            # lista las tareas
-make check           # lint + tests de web, launcher y Flutter (lo mismo que CI)
+make check           # lint + tests de la web y Flutter (lo mismo que CI)
 ```
 
 ### UI web (React) — `web/`
@@ -145,18 +134,6 @@ npm run lint         # ESLint
 npm test             # tests unitarios (vitest)
 npm run build        # genera web/dist/
 ```
-
-### Launcher de escritorio — modo USB (Go) — `launcher/`
-
-```bash
-make launcher        # compila la web, la copia a launcher/dist y corre `go run .`
-make test-launcher   # go vet + go test (endpoint /quit)
-
-# WiXplorer.app (macOS) para distribuir
-make desktop         # = bash launcher/scripts/build.sh
-```
-
-Los binarios quedan en `launcher/dist_bin/`.
 
 ### App móvil — modo WiFi (Flutter) — `mobile/`
 
@@ -197,7 +174,6 @@ GET  /*                         → React SPA embebida
 | Fuerza bruta del PIN | Bloqueo tras 5 intentos fallidos |
 | Token robado | Se invalida al detener el servidor |
 | Path traversal | `FileService` resuelve `..` y symlinks y exige que la ruta real quede dentro de una raíz permitida (comparación por componentes, no por prefijo) |
-| Launcher de escritorio expuesto a la red | Go escucha solo en `127.0.0.1`; `/quit` solo acepta `POST` desde el propio origen |
 | Proceso eliminado en segundo plano (Android) | Foreground Service con notificación persistente |
 
 ### Limitaciones conocidas

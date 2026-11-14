@@ -16,8 +16,8 @@ describe('detección del modo', () => {
     expect(getSelfOrigin()).toEqual({ ip: '192.168.0.10', port: 7070 });
   });
 
-  it('el launcher y Vite (localhost) no lo son', () => {
-    for (const url of ['http://localhost:3000/', 'http://127.0.0.1:54321/', 'http://[::1]:5173/']) {
+  it('Vite en desarrollo (localhost) no lo es', () => {
+    for (const url of ['http://localhost:5173/', 'http://127.0.0.1:5173/', 'http://[::1]:5173/']) {
       at(url);
       expect(isSelfHosted()).toBe(false);
       expect(isWebHosted()).toBe(false);

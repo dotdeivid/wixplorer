@@ -567,7 +567,7 @@ export function useNetworkDevice(options: UseNetworkDeviceOptions = {}): Network
       toast.warning(`"${file.name}" se va a descargar en memoria (${formatBytes(file.size)})`, {
         description: window.isSecureContext
           ? 'Este navegador no puede escribir directo al disco. Con Chrome o Edge la descarga no usa RAM.'
-          : 'La página se abrió por http://, sin acceso directo al disco. Abrí WiXplorer desde la app de escritorio (localhost) con Chrome o Edge para descargar sin usar RAM.',
+          : 'La página del teléfono se abre por http://, que no permite escribir directo al disco: el archivo se arma en memoria antes de guardarse. Para archivos muy grandes, conviene descargarlos de a uno.',
         duration: 10000,
       });
     }

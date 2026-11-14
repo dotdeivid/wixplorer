@@ -212,8 +212,3 @@
   background: var(--bg-sidebar-hover);
   color: var(--text-primary);
 }
-
-.quitBtn:hover {
-  background: var(--color-destructive-bg);
-  color: var(--color-destructive-text);
-}

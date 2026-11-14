@@ -8,10 +8,7 @@ Referencia rápida: qué hacer después de cada tipo de cambio para obtener los 
 
 ```
 wixplorer/
-  web/                  ← App React (UI web)
-  launcher/             ← Launcher Go (ejecutable de escritorio)
-    packaging/          ← Info.plist, ícono, LEEME.txt
-    scripts/build.sh    ← Build del .app de macOS → launcher/dist_bin/
+  web/                  ← App React (UI web) — se publica en GitHub Pages
   mobile/               ← App Flutter (servidor Android)
     scripts/build_web_assets.sh ← Build React → assets Flutter
   Makefile              ← Atajos para todo (`make help`)
@@ -21,7 +18,7 @@ wixplorer/
 
 | Modo | Quién sirve la web | Requiere |
 |------|-------------------|----------|
-| **USB** (macOS) | Go launcher en la Mac | `WiXplorer.app` en la computadora |
+| **USB** (macOS) | GitHub Pages (`https://dotdeivid.github.io/wixplorer/`) | Chrome o Edge en la Mac; en el teléfono no hace falta la app |
 | **WiFi** | Flutter en el teléfono | App Android instalada + browser en la PC |
 
 ### Decisiones de arquitectura
@@ -29,7 +26,7 @@ wixplorer/
 **No hay backend en Node.js.** Node solo existe como herramienta de desarrollo (Vite). El backend real del modo WiFi es el servidor Flutter que corre en el teléfono:
 
 ```
-Navegador (React) ←→ Go launcher   (localhost:3000, solo archivos estáticos)
+Navegador (React) ←→ GitHub Pages   (https, solo archivos estáticos)
 Navegador (React) ←→ Flutter server (192.168.x.x:7070, API real)
 Navegador (React) ←→ WebUSB         (MTP por USB, directo desde el browser)
 ```
@@ -40,16 +37,16 @@ Navegador (React) ←→ WebUSB         (MTP por USB, directo desde el browser)
 | Listado y acceso a archivos Android | `FileService` en Flutter |
 | Streaming de video (Range requests) | `server_service.dart` en Flutter |
 | Acceso MTP (Android por USB) | WebUSB, directamente en el browser |
-| Servir la interfaz web en escritorio | Launcher Go (su única responsabilidad) |
+| Servir la interfaz web para el modo USB | GitHub Pages (`.github/workflows/pages.yml`) |
 
-**Por qué un launcher en Go.** Embebe la web compilada con `go:embed` (una copia de `web/dist` en `launcher/dist`, porque `go:embed` no puede leer fuera del paquete), levanta un servidor en `127.0.0.1` y abre el browser. Para el usuario final: un solo archivo, doble clic, sin instalar Node ni abrir una terminal, y funciona offline. Para desarrollo: binario Universal (arm64 + amd64) con `lipo`. Solo se distribuye para macOS, que no lee Android por cable de forma nativa; en Windows el Explorador ya muestra el teléfono y Chrome no puede usar WebUSB con el driver MTP del sistema, así que ahí se usa el modo WiFi. El flujo diario no cambia — se sigue trabajando con Vite y Go solo entra al empaquetar.
+**Por qué GitHub Pages para el modo USB.** WebUSB solo funciona en páginas seguras (`https://` o `localhost`). La página que sirve el teléfono (`http://192.168…`) no cuenta como segura, así que el modo USB necesita otra fuente. Pages la da por `https://`, sin que el usuario descargue nada, y se actualiza sola con cada merge a `main`. El modo USB está pensado para macOS, que no lee Android por cable de forma nativa; en Windows el Explorador ya muestra el teléfono y Chrome no puede usar WebUSB con el driver MTP del sistema, así que ahí se usa el modo WiFi.
 
 **Alternativas descartadas:**
-- **Electron** — ~150 MB por el Chromium embebido, contra ~10–12 MB del binario Go.
+- **Launcher de escritorio (Go)** — existió hasta noviembre de 2026: servía la web en `localhost` desde un `.app`. Se reemplazó por Pages, que no requiere descargar ni firmar nada.
 - **Tauri** — en macOS usa WKWebView, que no soporta WebUSB; el modo MTP dejaría de funcionar.
-- **Distribuir con Node** — obliga al usuario a tener Node instalado.
+- **Electron** — ~150 MB por el Chromium embebido para servir archivos estáticos.
 
-**Rendimiento.** Go no acelera las transferencias: sirve archivos locales y ese paso es instantáneo. El cuello de botella es siempre la WiFi, el servidor Flutter leyendo del almacenamiento Android y el browser procesando los blobs. Las optimizaciones de red van en Flutter (Range requests, compresión desactivada para no romperlos).
+**Rendimiento.** Servir la web no influye en las transferencias. El cuello de botella es siempre la WiFi, el servidor Flutter leyendo del almacenamiento Android y el browser procesando los blobs. Las optimizaciones de red van en Flutter (Range requests, compresión desactivada para no romperlos).
 
 ---
 
@@ -65,14 +62,6 @@ Abre `http://localhost:5173`. Hot reload automático. Ideal para trabajar en la 
 
 > En modo dev el servidor corre en `localhost` → modo USB activo, modo WiFi no disponible (es esperado).
 
-### Probar el launcher Go localmente
-
-```bash
-make launcher             # compila web/, copia web/dist → launcher/dist y corre `go run .`
-```
-
-Abre `http://localhost:3000` con la build de producción de React. Útil para verificar que el launcher funciona antes de generar el ejecutable final.
-
 ### Probar la app Flutter en el teléfono (modo WiFi)
 
 ```bash
@@ -85,13 +74,9 @@ Hot reload con `r`, reinicio con `R`. La URL aparece en pantalla.
 
 ## Escenario 1 — Cambié código React
 
-### → Launcher de escritorio (macOS)
+### → Versión web (modo USB)
 
-```bash
-make desktop
-```
-
-Compila React, genera el `.app` y arma `launcher/dist_bin/WiXplorer_v1.0.zip`.
+No hay que hacer nada: al mergear a `main`, `pages.yml` la compila y la publica en GitHub Pages. Para probar antes, `make dev`.
 
 ### → App Android (modo WiFi con web embebida)
 
@@ -131,44 +116,22 @@ cd mobile && flutter build apk --release   # 2. Genera el APK con la web nueva
 
 ---
 
-## Escenario 4 — Cambié el launcher Go (`launcher/main.go`)
-
-```bash
-make desktop
-```
-
-El script siempre recompila React y luego el Go. Si React no cambió el build es rápido (Vite hace cache).
-
----
-
 ## Productos finales
 
 | Producto | Ruta | Cómo se genera |
 |---------|------|----------------|
-| ZIP para pendrive (`.app` + LEEME) | `launcher/dist_bin/WiXplorer_v1.0.zip` | `make desktop` |
-| `.app` macOS | `launcher/dist_bin/WiXplorer.app` | `make desktop` |
+| Versión web (modo USB) | https://dotdeivid.github.io/wixplorer/ | `pages.yml`, automático al mergear a `main` |
 | APK Android | `mobile/build/app/outputs/flutter-apk/app-release.apk` | `cd mobile && flutter build apk --release` |
 
 ---
 
 ## Instalación en cada dispositivo
 
-### Mac
+### Mac / Windows / Linux
 
-```bash
-# Opción A — desde el ZIP de distribución
-unzip launcher/dist_bin/WiXplorer_v1.0.zip
-# Abrir WiXplorer.app con clic derecho → Abrir (solo la primera vez)
-
-# Opción B — probar el .app directamente
-open launcher/dist_bin/WiXplorer.app
-```
-
-Si macOS bloquea la app (Gatekeeper): **clic derecho → Abrir → Abrir**.
-
-### Windows / Linux
-
-No hay launcher: se usa el modo WiFi desde cualquier navegador.
+No se instala nada en la computadora:
+- **WiFi:** entrar desde el navegador a la dirección que muestra la app del teléfono.
+- **USB (Mac, Chrome o Edge):** entrar a https://dotdeivid.github.io/wixplorer/.
 
 ### Android
 
@@ -193,10 +156,7 @@ Desde la raíz, `make help` lista todos los atajos.
 | `make dev` (`cd web && npm run dev`) | Servidor de desarrollo React (hot reload) |
 | `make build` (`cd web && npm run build`) | Compila React → `web/dist/` |
 | `make lint` / `make test` | ESLint y tests unitarios de la web (vitest) |
-| `make launcher` | Copia `web/dist` a `launcher/dist` y corre el launcher (`go run .`) |
-| `make test-launcher` | `go vet` + `go test` del launcher |
 | `make mobile-assets` (`mobile/scripts/build_web_assets.sh`) | Compila React y copia a `mobile/assets/www/` |
-| `make desktop` (`launcher/scripts/build.sh`) | Build completo: React + Go macOS Universal + `.app` + ZIP |
 | `make mobile-test` | `flutter analyze` + `flutter test` |
 | `make apk` | Web actual + APK de release |
 | `make check` | Todos los checks (lo mismo que CI) |
@@ -207,10 +167,9 @@ Desde la raíz, `make help` lista todos los atajos.
 
 ## Checklist antes de distribuir
 
-- [ ] `make check` sin errores (lint, tests web, launcher y Flutter)
+- [ ] `make check` sin errores (lint, tests de la web y Flutter)
 - [ ] `make build` sin errores TypeScript
-- [ ] `make desktop` genera `launcher/dist_bin/WiXplorer_v1.0.zip`
-- [ ] Probar el `.app` localmente: doble clic → se abre el browser
+- [ ] Después del merge a `main`, el workflow Pages pasó y https://dotdeivid.github.io/wixplorer/ carga la versión nueva
 - [ ] `make apk`
 - [ ] Instalar el APK en el teléfono y probar el flujo WiFi completo (iniciar servidor → URL → PIN → archivos)
-- [ ] Actualizar número de versión en `web/package.json`, `launcher/packaging/Info.plist` y `mobile/pubspec.yaml` si corresponde
+- [ ] Actualizar número de versión en `web/package.json` y `mobile/pubspec.yaml` si corresponde
