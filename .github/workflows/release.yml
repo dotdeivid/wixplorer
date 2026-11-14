@@ -61,7 +61,9 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.x'
+          # Versión fija: con '3.x' cada release nueva de Flutter puede
+          # romper CI (deprecaciones en analyze, mínimos de AGP/Gradle).
+          flutter-version: '3.50.0'
           channel: stable
           cache: true
 
