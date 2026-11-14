@@ -106,7 +106,7 @@ const Sidebar: React.FC<SidebarProps> = ({
   return (
     <nav className={styles.sidebar} aria-label="Barra lateral">
       <div className={styles.topNavbar}>
-        <img src="/favicon.svg" alt="" className={styles.appLogo} />
+        <img src={`${import.meta.env.BASE_URL}favicon.svg`} alt="" className={styles.appLogo} />
         <span className={styles.appName}>WiXplorer</span>
       </div>
 

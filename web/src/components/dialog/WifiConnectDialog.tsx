@@ -2,6 +2,7 @@ import React, { useRef, useState } from 'react';
 import Dialog from './Dialog';
 import styles from './Dialog.module.css';
 import type { NetworkDevice } from '../../hooks/useNetworkDevice';
+import { isWebHosted } from '../../services/network/selfHosted';
 
 interface WifiConnectDialogProps {
   onFound: (device: NetworkDevice) => void;
@@ -30,8 +31,15 @@ function parseAddress(raw: string): { ip: string; port: number } | null {
   return { ip: m[1], port };
 }
 
-/** Pide la dirección del teléfono y verifica que haya un servidor WiXplorer. */
+/**
+ * Pide la dirección del teléfono y verifica que haya un servidor WiXplorer.
+ *
+ * Desde la versión publicada (https://) el navegador bloquea los pedidos a
+ * http://192.168.… (contenido mixto y acceso a la red local), así que ahí se
+ * abre la página del propio teléfono en lugar de conectarse desde esta.
+ */
 const WifiConnectDialog: React.FC<WifiConnectDialogProps> = ({ onFound, onCancel }) => {
+  const opensPhonePage = isWebHosted();
   const [address, setAddress] = useState(loadLastAddress);
   const [error, setError] = useState<string | null>(null);
   const [checking, setChecking] = useState(false);
@@ -43,6 +51,11 @@ const WifiConnectDialog: React.FC<WifiConnectDialogProps> = ({ onFound, onCancel
     if (!parsed) {
       setError('Escribí la dirección como aparece en la app, por ejemplo 192.168.0.10:7070.');
       inputRef.current?.focus();
+      return;
+    }
+    if (opensPhonePage) {
+      saveLastAddress(`${parsed.ip}:${parsed.port}`);
+      window.location.assign(`http://${parsed.ip}:${parsed.port}/`);
       return;
     }
     setChecking(true);
@@ -67,7 +80,9 @@ const WifiConnectDialog: React.FC<WifiConnectDialogProps> = ({ onFound, onCancel
   return (
     <Dialog
       title="Conectar por WiFi"
-      description="Abrí WiXplorer en el teléfono, tocá Iniciar y escribí la dirección que aparece."
+      description={opensPhonePage
+        ? 'Abrí WiXplorer en el teléfono, tocá Iniciar y escribí la dirección que aparece. Te llevamos a la página del teléfono, donde ingresás el PIN.'
+        : 'Abrí WiXplorer en el teléfono, tocá Iniciar y escribí la dirección que aparece.'}
       onClose={checking ? undefined : onCancel}
       initialFocus={inputRef}
     >
@@ -92,7 +107,7 @@ const WifiConnectDialog: React.FC<WifiConnectDialogProps> = ({ onFound, onCancel
         <div className={styles.buttons}>
           <button type="button" className={styles.btnCancel} onClick={onCancel} disabled={checking}>Cancelar</button>
           <button type="submit" className={styles.btnConfirm} disabled={checking || !address.trim()}>
-            {checking ? 'Buscando…' : 'Conectar'}
+            {checking ? 'Buscando…' : opensPhonePage ? 'Abrir' : 'Conectar'}
           </button>
         </div>
       </form>
