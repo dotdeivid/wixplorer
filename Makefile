@@ -1,7 +1,7 @@
-# Tareas del monorepo: web/ (React), launcher/ (Go) y mobile/ (Flutter).
+# Tareas del monorepo: web/ (React) y mobile/ (Flutter).
 # `make help` lista todo.
 
-.PHONY: help install dev lint test build check launcher-web launcher test-launcher desktop mobile-assets mobile-test apk clean
+.PHONY: help install dev lint test build check mobile-assets mobile-test apk clean
 
 help: ## Lista las tareas disponibles
 	@grep -E '^[a-z-]+:.*## ' $(MAKEFILE_LIST) | awk -F':.*## ' '{printf "  %-16s %s\n", $$1, $$2}'
@@ -22,19 +22,6 @@ test: ## Tests de la web (vitest)
 build: ## Compila la web en web/dist
 	cd web && npm run build
 
-# ── Launcher de escritorio (Go) ─────────────────────────────────────────────
-launcher-web: build ## Copia web/dist a launcher/dist (lo necesita go:embed)
-	rm -rf launcher/dist && cp -r web/dist launcher/dist
-
-launcher: launcher-web ## Corre el launcher en local (abre el navegador)
-	cd launcher && go run .
-
-test-launcher: launcher-web ## go vet + go test del launcher
-	cd launcher && go vet . && go test .
-
-desktop: ## WiXplorer.app (macOS) en launcher/dist_bin/
-	bash launcher/scripts/build.sh
-
 # ── App móvil (Flutter) ─────────────────────────────────────────────────────
 mobile-assets: ## Compila la web y la copia a mobile/assets/www
 	bash mobile/scripts/build_web_assets.sh
@@ -46,7 +33,7 @@ apk: mobile-assets ## APK de release con la web actual
 	cd mobile && flutter build apk --release
 
 # ── Todo ────────────────────────────────────────────────────────────────────
-check: lint test test-launcher mobile-test ## Todos los checks (lo mismo que corre CI)
+check: lint test mobile-test ## Todos los checks (lo mismo que corre CI)
 
 clean: ## Borra los builds generados
-	rm -rf web/dist launcher/dist launcher/dist_bin mobile/assets/www
+	rm -rf web/dist mobile/assets/www

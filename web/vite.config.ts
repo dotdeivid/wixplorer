@@ -35,8 +35,8 @@ function assetManifest(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
-  // Ruta donde se sirve la app. '/' para el launcher y el teléfono; GitHub
-  // Pages (sin dominio propio) la sirve en /wixplorer/ y el workflow pasa
+  // Ruta donde se sirve la app. '/' para el teléfono y Vite; GitHub Pages
+  // (sin dominio propio) la sirve en /wixplorer/ y el workflow pasa
   // VITE_BASE=/wixplorer/.
   base: process.env.VITE_BASE || '/',
   plugins: [react(), assetManifest()],

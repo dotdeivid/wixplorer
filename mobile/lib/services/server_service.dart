@@ -684,8 +684,8 @@ class ServerService {
 
   // ── Middlewares ───────────────────────────────────────────────────────────
 
-  /// CORS restringido: solo la web del propio teléfono y la del launcher de
-  /// escritorio (loopback) pueden usar la API desde un navegador. Un request
+  /// CORS restringido: solo la web del propio teléfono y la de desarrollo
+  /// (Vite en loopback) pueden usar la API desde un navegador. Un request
   /// con `Origin` de cualquier otro sitio se rechaza antes de llegar a la API.
   /// Los requests sin `Origin` (navegación, <img>/<video> del mismo origen,
   /// curl) pasan: la API igual exige el token.

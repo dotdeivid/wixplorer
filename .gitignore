@@ -8,16 +8,13 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
-# Builds: web/dist y su copia en launcher/dist (para go:embed)
+# Build de la web (web/dist)
 dist
 dist-ssr
 *.local
 
 # Assets web generados por mobile/scripts/build_web_assets.sh — no commitear
 mobile/assets/www/
-
-# Launcher: binarios generados (launcher/dist_bin)
-dist_bin/
 
 # Archivo de críticas de impeccable (local)
 .impeccable/

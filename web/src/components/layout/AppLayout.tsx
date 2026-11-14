@@ -25,7 +25,6 @@ import { getFileCategory } from '../../utils/fileKind';
 import { plural, quoted } from '../../utils/format';
 import { toast } from 'sonner';
 import { isSelfHosted } from '../../services/network/selfHosted';
-import QuitScreen from '../quit/QuitScreen';
 import { errorMessage, errorName } from '../../utils/errors';
 
 export type ViewMode = 'grid' | 'list' | 'columns' | 'gallery';
@@ -87,7 +86,6 @@ const AppLayout: React.FC = () => {
 
   // Constante de sesión — no cambia mientras la página esté abierta
   const selfHosted = isSelfHosted();
-  const [quitting, setQuitting] = useState(false);
 
   // Modo activo: 'network' cuando hay un dispositivo de red autenticado, 'usb' en otro caso
   const isNetworkMode = networkState.connectedDevice !== null;
@@ -610,7 +608,7 @@ const AppLayout: React.FC = () => {
   const keyHandlerRef = useRef<(e: KeyboardEvent) => void>(() => {});
   useLayoutEffect(() => {
     keyHandlerRef.current = (e: KeyboardEvent) => {
-      if (e.defaultPrevented || quitting) return;
+      if (e.defaultPrevented) return;
       const blocked = pinDialogDevice || deleteTarget || wifiDialogOpen || helpOpen || aboutOpen
         || newFolderDialogOpen || contextMenu || renamingFileId != null;
       if (blocked) return;
@@ -706,10 +704,6 @@ const AppLayout: React.FC = () => {
     return () => window.removeEventListener('keydown', onKey);
   }, []);
 
-  const handleQuit = useCallback(() => {
-    setQuitting(true);
-    fetch('/quit', { method: 'POST' }).catch(() => {});
-  }, []);
 
   const showError = activeError && !errorDismissed;
   const activeDownloadProgress = zipProgress ?? (isNetworkMode ? networkState.downloadProgress : mtpState.downloadProgress);
@@ -717,8 +711,6 @@ const AppLayout: React.FC = () => {
   const showPreviewPanel =
     selectedFiles.length > 1 ||
     (primarySelected !== null && !primarySelected.isFolder);
-
-  if (quitting) return <QuitScreen />;
 
   return (
     <div className={styles.layout}>
@@ -744,7 +736,6 @@ const AppLayout: React.FC = () => {
           }}
           onNavigateToFavorite={isNetworkMode ? networkState.navigateToFavoriteFolder : mtpState.navigateToFavoriteFolder}
           selfHosted={selfHosted}
-          onQuit={handleQuit}
         />
       </div>
 

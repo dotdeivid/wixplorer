@@ -9,8 +9,8 @@ import 'dart:convert';
 /// Se permiten:
 /// - La web servida por el propio teléfono (modo auto-hospedado): el origen
 ///   coincide con el `Host` del request.
-/// - La web del launcher de escritorio o de Vite en desarrollo, que corren en
-///   loopback (`localhost`, `127.0.0.1`, `[::1]`) en cualquier puerto.
+/// - La web en desarrollo (Vite), que corre en loopback (`localhost`,
+///   `127.0.0.1`, `[::1]`) en cualquier puerto.
 ///
 /// Cualquier otra página (p.ej. un sitio abierto en un navegador de la red)
 /// queda afuera, aunque no conozca el token.
