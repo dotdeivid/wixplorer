@@ -23,10 +23,9 @@ var distFiles embed.FS
 func openBrowser(url string) {
 	var cmd string
 	var args []string
+	// Se distribuye solo para macOS; xdg-open queda para correrlo en Linux
+	// durante el desarrollo.
 	switch runtime.GOOS {
-	case "windows":
-		cmd = "rundll32"
-		args = []string{"url.dll,FileProtocolHandler", url}
 	case "darwin":
 		cmd = "open"
 		args = []string{url}

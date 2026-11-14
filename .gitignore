@@ -16,9 +16,8 @@ dist-ssr
 # Assets web generados por mobile/scripts/build_web_assets.sh — no commitear
 mobile/assets/www/
 
-# Launcher: binarios (launcher/dist_bin) y recursos de Windows generados
+# Launcher: binarios generados (launcher/dist_bin)
 dist_bin/
-resource_*.syso
 
 # Archivo de críticas de impeccable (local)
 .impeccable/
