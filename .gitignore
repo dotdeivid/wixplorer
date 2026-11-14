@@ -8,18 +8,20 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# Builds: web/dist y su copia en launcher/dist (para go:embed)
 dist
 dist-ssr
 *.local
 
-# Assets web generados por build_mobile_web.sh — no commitear
+# Assets web generados por mobile/scripts/build_web_assets.sh — no commitear
 mobile/assets/www/
 
-# Binarios Go generados
+# Launcher: binarios (launcher/dist_bin) y recursos de Windows generados
 dist_bin/
-WiXplorer_test
-resource.syso
 resource_*.syso
+
+# Archivo de críticas de impeccable (local)
+.impeccable/
 
 # Editor directories and files
 .vscode/*

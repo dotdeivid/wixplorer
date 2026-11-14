@@ -13,6 +13,6 @@
     "ProductVersion":   "1.0.0"
   },
   "VarFileInfo": { "Translation": { "LangID": 1033, "CharsetID": 1200 } },
-  "IconPath": "build/icon.ico",
+  "IconPath": "packaging/icon.ico",
   "ManifestPath": ""
 }

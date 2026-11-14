@@ -77,30 +77,35 @@ Sin configuración extra el APK se firma con la debug key, válido para instalac
 
 ## Estructura del repositorio
 
+Monorepo con tres proyectos: la web, el launcher de escritorio y la app móvil. La web compilada se embebe en los otros dos.
+
 ```
 wixplorer/
-├── src/                  # UI web (React + TypeScript + Vite)
-│   ├── components/       # Explorer, sidebar, toolbar, preview, contextmenu…
-│   ├── hooks/            # useMTPDevice, useNetworkDevice, useThumbnail…
-│   └── services/         # NetworkClient, ThumbCache, MtpClient…
+├── web/                  # UI web (React + TypeScript + Vite)
+│   ├── src/
+│   │   ├── components/   # Explorer, sidebar, toolbar, preview, diálogos…
+│   │   ├── hooks/        # useMTPDevice, useNetworkDevice, useThumbnail…
+│   │   └── services/     # NetworkClient, ThumbCache, MtpClient…
+│   ├── public/           # sw.js (service worker), íconos
+│   └── dist/             # Build (generado por Vite)
+├── launcher/             # Launcher de escritorio (Go) para el modo USB
+│   ├── main.go           # Sirve la web en localhost y abre el navegador
+│   ├── packaging/        # Info.plist, íconos, versioninfo.json, LEEME.txt
+│   ├── scripts/build.sh  # web → .app + .exe + ZIP (lo usan `make desktop` y release.yml)
+│   ├── dist/             # Copia de web/dist para go:embed (generada)
+│   └── dist_bin/         # Binarios de distribución (generados)
 ├── mobile/               # App Flutter (servidor HTTP + UI de control)
 │   ├── lib/
 │   │   ├── screens/      # HomeScreen
 │   │   ├── widgets/      # MainButton, StatusCard, PulseRing
 │   │   └── services/     # ServerService, FileService, AuthService…
-│   └── assets/www/       # Build de React embebido (generado por build_mobile_web.sh)
-├── build/                # Recursos para el launcher de escritorio
-│   ├── Info.plist        # Bundle macOS
-│   ├── AppIcon.icns      # Ícono macOS
-│   └── icon.ico          # Ícono Windows
-├── scripts/
-│   ├── build_desktop.sh  # Compila launcher Go → .app + .exe
-│   └── build_mobile_web.sh # Compila React → copia a assets/www/ del APK
-├── public/
-│   └── sw.js             # Service Worker (caché de assets estáticos)
-├── main.go               # Launcher Go para modo MTP: sirve la UI React en localhost
-└── dist/                 # Build de React (generado por Vite)
+│   ├── scripts/build_web_assets.sh  # web → mobile/assets/www/
+│   └── assets/www/       # Copia de web/dist (generada)
+├── docs/                 # Guía de desarrollo y planes de trabajo
+└── Makefile              # Atajos para todas las tareas (`make help`)
 ```
+
+> **Por qué `launcher/dist` es una copia:** `go:embed` no puede leer fuera del paquete Go, así que la web compilada se copia a `launcher/dist` antes de compilar. El script de escritorio, `make launcher` y el CI lo hacen solos.
 
 ---
 
@@ -108,49 +113,50 @@ wixplorer/
 
 ### Requisitos
 
-- Node.js 20+ y npm
-- Go 1.26+ (solo para el launcher MTP de escritorio)
-- Flutter 3.19+ (solo para el módulo mobile WiFi)
+- Node.js 24+ y npm
+- Go 1.27+ (solo para el launcher de escritorio)
+- Flutter 3.50 (solo para la app móvil)
 - macOS con Xcode CLI Tools (para compilar el `.app` Universal)
 
-### UI web (React)
+Todas las tareas tienen un atajo en el `Makefile` de la raíz:
 
 ```bash
+make help            # lista las tareas
+make check           # lint + tests de web, launcher y Flutter (lo mismo que CI)
+```
+
+### UI web (React) — `web/`
+
+```bash
+cd web
 npm install
 npm run dev          # servidor de desarrollo en http://localhost:5173
 npm run lint         # ESLint
-npm test             # tests unitarios (vitest) — parser MTP, helpers
-npm run build        # genera dist/
+npm test             # tests unitarios (vitest)
+npm run build        # genera web/dist/
 ```
 
-### Launcher de escritorio — modo MTP (Go)
+### Launcher de escritorio — modo USB (Go) — `launcher/`
 
 ```bash
-# Requiere dist/ generado previamente
-npm run build
-go run main.go
-go test .            # tests del launcher (endpoint /quit)
+make launcher        # compila la web, la copia a launcher/dist y corre `go run .`
+make test-launcher   # go vet + go test (endpoint /quit)
 
-# Generar binarios de distribución
-bash scripts/build_desktop.sh
+# Binarios de distribución (.app + .exe)
+make desktop         # = bash launcher/scripts/build.sh
 ```
 
-Los binarios quedan en `dist_bin/`.
+Los binarios quedan en `launcher/dist_bin/`.
 
-### App mobile — modo WiFi (Flutter)
+### App móvil — modo WiFi (Flutter) — `mobile/`
 
 ```bash
+make mobile-assets     # compila la web y la copia a mobile/assets/www/
 cd mobile
 flutter pub get
 flutter run            # ejecutar en dispositivo/emulador conectado
-flutter test           # tests unitarios — validación de paths, AuthService
-flutter build apk --release
-```
-
-Para empaquetar la UI React dentro del APK:
-
-```bash
-bash scripts/build_mobile_web.sh
+flutter test           # tests unitarios — paths, AuthService, Range, seguridad HTTP
+flutter build apk --release   # o `make apk` desde la raíz
 ```
 
 ---
