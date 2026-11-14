@@ -5,23 +5,15 @@ Accede a los archivos de tu teléfono Android desde cualquier navegador.
 Sin instalar nada. Sin cables (opcional).
 
 
-PRIMER USO — MAC
+PRIMER USO (MAC)
 ----------------
-1. Abrí la carpeta "Mac"
-2. Clic derecho en WiXplorer.app → "Abrir"
-3. En el diálogo de advertencia de macOS, hacé clic en "Abrir"
+1. Clic derecho en WiXplorer.app → "Abrir"
+2. En el diálogo de advertencia de macOS, hacé clic en "Abrir"
    (solo la primera vez — después funciona con doble clic normal)
-4. Se abre el navegador con WiXplorer listo
+3. Se abre el navegador con WiXplorer listo
 
-
-PRIMER USO — WINDOWS
----------------------
-1. Abrí la carpeta "Windows"
-2. Doble clic en WiXplorer.exe
-3. Si aparece "Windows protegió tu PC", hacé clic en
-   "Más información" → "Ejecutar de todas formas"
-   (solo la primera vez)
-4. Se abre el navegador con WiXplorer listo
+WiXplorer.app es para el modo USB: macOS no lee Android por cable de forma
+nativa. En Windows y Linux usá el modo WiFi.
 
 
 USO VÍA WIFI (sin cable)
@@ -36,12 +28,12 @@ USO VÍA WIFI (sin cable)
 Consejo: guardá la URL en favoritos del navegador para la próxima vez.
 
 
-USO VÍA USB
------------
-1. Conectá el teléfono con cable USB
-2. En el teléfono, seleccioná "Transferencia de archivos (MTP)"
-3. Abrí WiXplorer desde el ejecutable
-4. En la barra lateral, hacé clic en "Agregar dispositivo..."
+USO VÍA USB (MAC, con Chrome o Edge)
+------------------------------------
+1. Conectá el teléfono con cable USB y desbloqueá la pantalla
+2. En el teléfono, seleccioná "Transferencia de archivos"
+3. Abrí WiXplorer.app
+4. Hacé clic en "Conectar por USB"
 5. Seleccioná tu teléfono en el diálogo del navegador
 
 

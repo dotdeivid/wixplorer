@@ -11,9 +11,11 @@ Explorá los archivos de tu Android desde el navegador del PC, sin cables ni sof
 | Modo | Quién sirve los archivos | Cómo conectar |
 |------|--------------------------|---------------|
 | **WiFi** | App WiXplorer en el teléfono | Abrís el navegador del PC y entrás a la IP que muestra la app; ingresás el PIN que aparece en pantalla |
-| **USB / MTP** | Protocolo MTP del teléfono | Abrís `WiXplorer.app` / `WiXplorer.exe` en la PC, conectás el cable y seleccionás "Transferencia de archivos" en el teléfono |
+| **USB / MTP** (macOS) | Protocolo MTP del teléfono | Abrís `WiXplorer.app` en la Mac, conectás el cable y seleccionás "Transferencia de archivos" en el teléfono |
 
-> **WiFi no requiere ningún software en la PC.** La app mobile levanta un servidor HTTP con la interfaz web embebida; solo necesitás un navegador.
+> **WiFi no requiere ningún software en la PC.** La app mobile levanta un servidor HTTP con la interfaz web embebida; solo necesitás un navegador. Funciona en cualquier sistema.
+>
+> **El modo USB es para macOS**, que no lee Android por cable de forma nativa. En Windows el Explorador ya muestra el teléfono, y Chrome no puede usar WebUSB con un dispositivo tomado por el driver MTP del sistema, así que no se distribuye un launcher para Windows.
 
 ---
 
@@ -23,7 +25,6 @@ Explorá los archivos de tu Android desde el navegador del PC, sin cables ni sof
 |-----------|-----------|----------------|
 | APK de release | Android | Servidor WiFi — instalar en el teléfono |
 | `WiXplorer.app` | macOS (Universal) | Modo MTP por USB |
-| `WiXplorer.exe` | Windows | Modo MTP por USB |
 
 ---
 
@@ -44,7 +45,6 @@ El CI corre en paralelo y publica los artefactos en la pestaña **Releases** del
 |-----------|-------------|
 | `WiXplorer.apk` | App Android con la UI web embebida |
 | `WiXplorer_mac.zip` | `WiXplorer.app` Universal (arm64 + amd64) |
-| `WiXplorer.exe` | Launcher Windows (amd64) |
 
 ### Pipeline del CI (`.github/workflows/release.yml`)
 
@@ -54,9 +54,9 @@ build-web ──┬── build-apk ──────┐
 ```
 
 1. **build-web** — lint + tests (`npm run lint`, `npm test`) y compila React (`npm run build`)
-2. **build-apk** — copia `dist/` a `mobile/assets/www/`, corre `flutter analyze` + `flutter test` y `flutter build apk --release`
-3. **build-desktop** — `go vet` + `go test`, compila binario macOS Universal con `lipo`, arma el `.app`, firma ad-hoc, cross-compila el `.exe` Windows desde el runner macOS
-4. **release** — crea el GitHub Release con los tres artefactos adjuntos
+2. **build-apk** — copia `web/dist/` a `mobile/assets/www/`, corre `flutter analyze` + `flutter test` y `flutter build apk --release`
+3. **build-desktop** — `go vet` + `go test` y `launcher/scripts/build.sh`: binario macOS Universal con `lipo`, `.app` firmado ad-hoc y ZIP
+4. **release** — crea el GitHub Release con el APK y el `.app`
 
 > Los tags con guión (ej: `v1.1.0-beta`) se marcan automáticamente como pre-release.
 
@@ -90,8 +90,8 @@ wixplorer/
 │   └── dist/             # Build (generado por Vite)
 ├── launcher/             # Launcher de escritorio (Go) para el modo USB
 │   ├── main.go           # Sirve la web en localhost y abre el navegador
-│   ├── packaging/        # Info.plist, íconos, versioninfo.json, LEEME.txt
-│   ├── scripts/build.sh  # web → .app + .exe + ZIP (lo usan `make desktop` y release.yml)
+│   ├── packaging/        # Info.plist, ícono, LEEME.txt
+│   ├── scripts/build.sh  # web → .app + ZIP (lo usan `make desktop` y release.yml)
 │   ├── dist/             # Copia de web/dist para go:embed (generada)
 │   └── dist_bin/         # Binarios de distribución (generados)
 ├── mobile/               # App Flutter (servidor HTTP + UI de control)
@@ -142,7 +142,7 @@ npm run build        # genera web/dist/
 make launcher        # compila la web, la copia a launcher/dist y corre `go run .`
 make test-launcher   # go vet + go test (endpoint /quit)
 
-# Binarios de distribución (.app + .exe)
+# WiXplorer.app (macOS) para distribuir
 make desktop         # = bash launcher/scripts/build.sh
 ```
 

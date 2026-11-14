@@ -32,7 +32,7 @@ launcher: launcher-web ## Corre el launcher en local (abre el navegador)
 test-launcher: launcher-web ## go vet + go test del launcher
 	cd launcher && go vet . && go test .
 
-desktop: ## Binarios de distribución (.app + .exe) en launcher/dist_bin/
+desktop: ## WiXplorer.app (macOS) en launcher/dist_bin/
 	bash launcher/scripts/build.sh
 
 # ── App móvil (Flutter) ─────────────────────────────────────────────────────

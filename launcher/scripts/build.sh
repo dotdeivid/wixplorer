@@ -1,7 +1,11 @@
 #!/bin/bash
-# Compila el launcher de escritorio (Go) → WiXplorer.app (macOS Universal) y
-# WiXplorer.exe (Windows), con la web embebida. Requiere macOS (lipo, codesign)
-# y goversioninfo en ~/go/bin.
+# Compila el launcher de escritorio (Go) → WiXplorer.app (macOS Universal),
+# con la web embebida. Requiere macOS (lipo, codesign).
+#
+# Solo macOS: es el sistema que no lee Android por USB de forma nativa. En
+# Windows el Explorador ya muestra el teléfono, y Chrome no puede usar WebUSB
+# con un dispositivo tomado por el driver MTP del sistema; ahí se usa el modo
+# WiFi.
 #
 # Uso: launcher/scripts/build.sh   (o `make desktop` desde la raíz)
 #
@@ -15,18 +19,18 @@ WEB_DIR="$ROOT_DIR/web"
 PACKAGING="$LAUNCHER_DIR/packaging"
 OUT="$LAUNCHER_DIR/dist_bin"
 
-echo "==> 1/6  Limpiando launcher/dist_bin/..."
+echo "==> 1/4  Limpiando launcher/dist_bin/..."
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
 if [ "${SKIP_WEB_BUILD:-}" = "1" ]; then
-  echo "==> 2/6  Usando la web ya compilada en launcher/dist..."
+  echo "==> 2/4  Usando la web ya compilada en launcher/dist..."
   if [ ! -f "$LAUNCHER_DIR/dist/index.html" ]; then
     echo "Error: launcher/dist/index.html no existe (SKIP_WEB_BUILD=1)." >&2
     exit 1
   fi
 else
-  echo "==> 2/6  Compilando la web y copiándola al launcher..."
+  echo "==> 2/4  Compilando la web y copiándola al launcher..."
   cd "$WEB_DIR"
   npm run build
   # go:embed no puede leer fuera del paquete: la web va a launcher/dist
@@ -34,14 +38,9 @@ else
   cp -r "$WEB_DIR/dist" "$LAUNCHER_DIR/dist"
 fi
 
-echo "==> 3/6  Generando recursos Windows (ícono + metadata)..."
-# El sufijo _windows_amd64 hace que Go enlace el .syso solo en ese target,
-# así el build de macOS no lo toma. Se compila el paquete (.) y no main.go:
-# con una lista de archivos Go ignora los .syso del directorio.
 cd "$LAUNCHER_DIR"
-~/go/bin/goversioninfo -64 -icon="$PACKAGING/icon.ico" -o="$LAUNCHER_DIR/resource_windows_amd64.syso" "$PACKAGING/versioninfo.json"
 
-echo "==> 4/6  Binario macOS (Universal: arm64 + amd64)..."
+echo "==> 3/4  Binario macOS (Universal: arm64 + amd64)..."
 GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "$OUT/WiXplorer_mac_arm64" .
 GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "$OUT/WiXplorer_mac_amd64" .
 lipo -create -output "$OUT/WiXplorer_mac" \
@@ -49,11 +48,7 @@ lipo -create -output "$OUT/WiXplorer_mac" \
   "$OUT/WiXplorer_mac_amd64"
 rm "$OUT/WiXplorer_mac_arm64" "$OUT/WiXplorer_mac_amd64"
 
-echo "==> 5/6  Binario Windows (amd64)..."
-GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" \
-  -o "$OUT/WiXplorer.exe" .
-
-echo "==> 6/6  Armando WiXplorer.app y paquete de distribución..."
+echo "==> 4/4  Armando WiXplorer.app y paquete de distribución..."
 APP="$OUT/WiXplorer.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
@@ -73,13 +68,10 @@ cd "$OUT" && zip -r --symlinks WiXplorer_mac.zip WiXplorer.app && cd "$LAUNCHER_
 # Paquete para distribución (pendrive / descarga)
 PKG="$OUT/WiXplorer_v1.0"
 rm -rf "$PKG"
-mkdir -p "$PKG/Mac" "$PKG/Windows"
+mkdir -p "$PKG"
 
-# Mac: copiar el .app completo
-cp -r "$APP" "$PKG/Mac/WiXplorer.app"
-
-# Windows: copiar el .exe
-cp "$OUT/WiXplorer.exe" "$PKG/Windows/WiXplorer.exe"
+# El .app completo
+cp -r "$APP" "$PKG/WiXplorer.app"
 
 # Instrucciones de primer uso
 cp "$PACKAGING/LEEME.txt" "$PKG/LEEME.txt"
