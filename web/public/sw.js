@@ -4,6 +4,10 @@
 
 const CACHE = 'pt-v1';
 
+// Ruta base de la app: el SW vive en <base>sw.js. Es '/' en el launcher y en
+// el teléfono, y '/wixplorer/' en GitHub Pages.
+const BASE = new URL('./', self.location).pathname;
+
 self.addEventListener('install', () => self.skipWaiting());
 
 self.addEventListener('activate', (event) => {
@@ -21,11 +25,11 @@ self.addEventListener('fetch', (event) => {
   const url = new URL(request.url);
 
   // Never cache API calls or non-same-origin requests
-  if (url.pathname.startsWith('/api/')) return;
+  if (url.pathname.startsWith(BASE + 'api/')) return;
   if (url.origin !== self.location.origin) return;
 
   // Cache-first for hashed assets under /assets/ (safe to cache forever)
-  if (url.pathname.startsWith('/assets/')) {
+  if (url.pathname.startsWith(BASE + 'assets/')) {
     event.respondWith(
       caches.open(CACHE).then((cache) =>
         cache.match(request).then((cached) => {
@@ -41,7 +45,7 @@ self.addEventListener('fetch', (event) => {
   }
 
   // Network-first for index.html — always get the latest shell
-  if (url.pathname === '/' || url.pathname === '/index.html') {
+  if (url.pathname === BASE || url.pathname === BASE + 'index.html') {
     event.respondWith(
       fetch(request)
         .then((response) => {
@@ -68,7 +72,7 @@ self.addEventListener('fetch', (event) => {
  * If the manifest is missing or empty, nothing is deleted.
  */
 async function pruneStaleAssets() {
-  const res = await fetch('/asset-manifest.json', { cache: 'no-store' });
+  const res = await fetch(BASE + 'asset-manifest.json', { cache: 'no-store' });
   if (!res.ok) return;
   const current = new Set(await res.json());
   if (current.size === 0) return;
@@ -76,7 +80,7 @@ async function pruneStaleAssets() {
   const keys = await cache.keys();
   await Promise.all(keys.map((req) => {
     const path = new URL(req.url).pathname;
-    if (path.startsWith('/assets/') && !current.has(path)) return cache.delete(req);
+    if (path.startsWith(BASE + 'assets/') && !current.has(path)) return cache.delete(req);
     return undefined;
   }));
 }

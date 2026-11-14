@@ -11,11 +11,11 @@ Explorá los archivos de tu Android desde el navegador del PC, sin cables ni sof
 | Modo | Quién sirve los archivos | Cómo conectar |
 |------|--------------------------|---------------|
 | **WiFi** | App WiXplorer en el teléfono | Abrís el navegador del PC y entrás a la IP que muestra la app; ingresás el PIN que aparece en pantalla |
-| **USB / MTP** (macOS) | Protocolo MTP del teléfono | Abrís `WiXplorer.app` en la Mac, conectás el cable y seleccionás "Transferencia de archivos" en el teléfono |
+| **USB / MTP** (macOS) | Protocolo MTP del teléfono | Entrás a **https://dotdeivid.github.io/wixplorer/** con Chrome o Edge (o abrís `WiXplorer.app` para usarlo sin internet), conectás el cable y seleccionás "Transferencia de archivos" en el teléfono |
 
 > **WiFi no requiere ningún software en la PC.** La app mobile levanta un servidor HTTP con la interfaz web embebida; solo necesitás un navegador. Funciona en cualquier sistema.
 >
-> **El modo USB es para macOS**, que no lee Android por cable de forma nativa. En Windows el Explorador ya muestra el teléfono, y Chrome no puede usar WebUSB con un dispositivo tomado por el driver MTP del sistema, así que no se distribuye un launcher para Windows.
+> **El modo USB es para macOS** y no necesita descargar nada: la versión publicada en GitHub Pages sirve por `https://`, que es lo que pide WebUSB. `WiXplorer.app` queda para usarlo sin conexión a internet. Es para macOS que no lee Android por cable de forma nativa. En Windows el Explorador ya muestra el teléfono, y Chrome no puede usar WebUSB con un dispositivo tomado por el driver MTP del sistema, así que no se distribuye un launcher para Windows.
 
 ---
 
@@ -25,6 +25,16 @@ Explorá los archivos de tu Android desde el navegador del PC, sin cables ni sof
 |-----------|-----------|----------------|
 | APK de release | Android | Servidor WiFi — instalar en el teléfono |
 | `WiXplorer.app` | macOS (Universal) | Modo MTP por USB |
+
+---
+
+## Versión web (GitHub Pages)
+
+`.github/workflows/pages.yml` publica la web en **https://dotdeivid.github.io/wixplorer/** en cada push a `main` que toque `web/`. También se puede lanzar a mano desde la pestaña Actions.
+
+- **Modo USB:** funciona directo desde la página, porque es `https://`.
+- **Modo WiFi:** el navegador no deja que una página `https://` le hable a `http://192.168.…`. Por eso, desde la versión publicada, "Conectar por WiFi…" lleva a la página del teléfono, donde se ingresa el PIN.
+- **Ruta base:** sin dominio propio la app vive en `/wixplorer/`, y el workflow compila con `VITE_BASE=/wixplorer/`. Con un dominio propio en la raíz, se cambia a `/` en el workflow y se configura en **Settings → Pages → Custom domain**.
 
 ---
 

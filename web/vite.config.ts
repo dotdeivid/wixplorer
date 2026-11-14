@@ -11,13 +11,18 @@ const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 
  * assets de builds anteriores.
  */
 function assetManifest(): Plugin {
+  let base = '/';
   return {
     name: 'wixplorer-asset-manifest',
     apply: 'build',
+    configResolved(config) {
+      base = config.base;
+    },
     generateBundle(_options, bundle) {
+      // Rutas absolutas tal como las pide el navegador (con la base de GitHub Pages)
       const files = Object.keys(bundle)
         .filter(name => name.startsWith('assets/'))
-        .map(name => `/${name}`)
+        .map(name => `${base}${name}`)
         .sort();
       this.emitFile({
         type: 'asset',
@@ -30,6 +35,10 @@ function assetManifest(): Plugin {
 
 // https://vite.dev/config/
 export default defineConfig({
+  // Ruta donde se sirve la app. '/' para el launcher y el teléfono; GitHub
+  // Pages (sin dominio propio) la sirve en /wixplorer/ y el workflow pasa
+  // VITE_BASE=/wixplorer/.
+  base: process.env.VITE_BASE || '/',
   plugins: [react(), assetManifest()],
   define: {
     // Versión de package.json, para mostrarla en "Acerca de"
