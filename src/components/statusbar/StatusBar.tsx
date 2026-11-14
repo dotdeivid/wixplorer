@@ -73,7 +73,7 @@ const StatusBar: React.FC<StatusBarProps> = ({
     );
   }
 
-  let label = '';
+  let label: string;
   if (!isConnected) {
     label = 'Sin dispositivo';
   } else if (isLoading) {

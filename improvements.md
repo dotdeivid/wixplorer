@@ -24,7 +24,7 @@ Las prioridades van de 🔴 (rompe funcionalidad o seguridad) a 🟡 (bug menor 
   - **`video_thumbnail` no compila con AGP 9.** Se reemplazó por `fc_native_video_thumbnail` 4.0.0.
   - **El `.syso` de Windows se generaba para 386 y nunca se enlazaba**, porque `go build main.go` ignora los `.syso`, así que el `.exe` salía sin ícono ni metadatos. Ahora se genera con `goversioninfo -64` y se compila el paquete (`.`).
 - **Fase 2 — Mejoras (§2): pendiente.**
-- **Fase 3 — Actualizaciones (§3): pendiente.** AGP/Kotlin ya se adelantaron en la fase 1. Sigue pendiente lo de CI (§3.5): `flutter analyze` falla con Flutter 3.50 por la deprecación de `material.dart`.
+- **Fase 3 — Actualizaciones (§3): aplicada** en la rama `chore/phase3-deps`, que está apilada sobre la fase 1. Queda un solo pendiente: TypeScript 7, que espera soporte de `typescript-eslint`.
 
 ---
 
@@ -130,75 +130,51 @@ Las prioridades van de 🔴 (rompe funcionalidad o seguridad) a 🟡 (bug menor 
 ### Calidad / tests
 - 🟢 Tests para el parser de `Range` (extraerlo a una función pura en Dart) y para `_readNdjson` / `downloadFileChunked` con `fetch` mockeado.
 - 🟢 Warning de lint en `useThumbnail.ts:137`: copiar `generationRef` a una variable local dentro del efecto. `FileExplorer.tsx:100` es el aviso esperado de React Compiler con `@tanstack/react-virtual`; se puede silenciar con un comentario explicativo.
-- 🟢 `@types/jszip` está en `dependencies`, pero jszip 3.x ya trae tipos: hay que eliminarlo.
+- ✅ `@types/jszip` eliminado (fase 3).
+- 🟢 **`react-hooks/set-state-in-effect`** (nueva en `eslint-plugin-react-hooks` 7.1, bajada a `warn` en `eslint.config.js`): 10 efectos resetean estado al cambiar de archivo o carpeta (`PreviewPanel`, `GalleryPreview`, `AppLayout`, `RecentsView`, `useThumbnail`, `useMTPDevice`). Migrarlos a `key` en el componente o a estado derivado, y después volver la regla a `error`.
 
 ---
 
-## 3. Actualizaciones de dependencias
+## 3. Actualizaciones de dependencias — ✅ aplicadas
 
 ### 3.1 npm (web)
 
-Actualizaciones seguras dentro del rango actual (`npm update` + `npm audit fix`):
+- Todas las dependencias están en su última versión (`npm outdated` limpio), salvo las dos excepciones de abajo. Mayores aplicadas: **ESLint 10**, **Vitest 5**, **TypeScript 6.0.3**.
+- `npm audit`: **0 vulnerabilidades**. `typescript-eslint` fija `minimatch@^10`, vulnerable a GHSA-g3hv-75wg-m249; se fuerza `minimatch@^11.0.8` con `overrides` en `package.json` (es la misma versión que ya usa ESLint). Se puede quitar cuando `typescript-eslint` la suba.
+- `@types/jszip` eliminado (jszip trae sus tipos).
+- ESLint 10 y `react-hooks` 7.1 activaron reglas nuevas. Se corrigieron:
+  - `no-useless-assignment` (`StatusBar`, `MtpClient`)
+  - `react-hooks/refs`: refs escritas durante el render en `AppLayout` y `useNetworkDevice`
+  - `react-hooks/immutability`: el health check usaba `resetConnection` antes de declararlo
+  - `set-state-in-effect` quedó en `warn` (ver §2, Calidad).
+- **Pendientes a propósito:**
+  - **TypeScript 7.0**: `typescript-eslint` 8.72 solo soporta `<6.1`.
+  - **@types/node 26**: se mantiene en 24 para coincidir con Node 24 de CI.
 
-| Paquete | Actual | Objetivo |
-|---|---|---|
-| react / react-dom | 19.2.4 | 19.3.1 |
-| @types/react / @types/react-dom | 19.2.14 / 19.2.3 | 19.3.0 |
-| vite | 8.0.3 | 8.3.8 |
-| @vitejs/plugin-react | 6.0.1 | 6.3.0 |
-| @tanstack/react-virtual | 3.13.23 | 3.14.26 |
-| lucide-react | 1.7.0 | 1.72.0 |
-| mp4box | 2.3.0 | 2.5.0 |
-| jszip | 3.10.1 | 3.10.2 |
-| sonner | 2.0.7 | 2.0.8 |
-| typescript-eslint | 8.58.0 | 8.72.2 |
-| eslint-plugin-react-hooks | 7.0.1 | 7.1.1 |
-| eslint-plugin-react-refresh | 0.5.2 | 0.5.7 |
-| globals | 17.4.0 | 17.14.0 |
-| @types/node | 24.12.0 | 24.19.2 |
+### 3.2 Flutter / Dart
 
-Mayores (requieren revisión, en un PR aparte):
-
-| Paquete | Actual | Latest | Nota |
-|---|---|---|---|
-| eslint / @eslint/js | 9.39 | 10.x | Revisar compatibilidad de `typescript-eslint` y los plugins de React con ESLint 10. |
-| vitest | 4.1.12 | 5.1.0 | Breaking menor; la suite es chica. |
-| typescript | 5.9.3 | 7.0.2 | Compilador nativo (Go). Probar `tsc -b` y la integración con `typescript-eslint` antes de subir. |
-| @types/node | 24.x | 26.x | Alinear con la versión de Node usada en CI. |
-
-### 3.2 Flutter / Dart (`mobile/pubspec.yaml`)
-
-Dentro del rango (`flutter pub upgrade`): `flutter_image_compress` 2.5.1, `image` 4.12.0, `mime` 2.1.0, `path_provider` 2.1.6, `shelf` 1.4.3, `shelf_router` 1.1.5, `url_launcher` 6.3.3, `uuid` 4.6.0.
-
-Mayores (`flutter pub upgrade --major-versions` y probar en un dispositivo):
-
-| Paquete | Actual | Latest |
-|---|---|---|
-| permission_handler | 11.4.0 | 13.0.2 (relevante para §1.2: `manageExternalStorage`, `notification`) |
-| device_info_plus | 10.1.2 | 13.3.0 |
-| network_info_plus | 6.1.4 | 8.2.2 |
-| wakelock_plus | 1.5.1 | 1.8.2 |
-| cupertino_icons | 1.0.9 | 2.0.0 (o quitarlo: no se usa si no hay widgets Cupertino) |
-
-- ✅ `video_thumbnail` 0.5.3 (sin mantenimiento, incompatible con AGP 9) se reemplazó por `fc_native_video_thumbnail` 4.0.0 en la fase 1.
-- SDK: `environment.sdk: ^3.11.3` → subir al Dart que trae Flutter 3.50.
+- Todo al día (`flutter pub outdated`: "all up-to-date"). Mayores: `permission_handler` 13, `device_info_plus` 13, `network_info_plus` 8, `wakelock_plus` 1.8.
+- `cupertino_icons` eliminado (no se usaba).
+- **`package:flutter/material.dart` → `package:material_ui/material_ui.dart`** (`material_ui` 1.11.0). `flutter analyze` ya no reporta nada.
+- `environment.sdk: ^3.13.0` (mínimo que pide `material_ui`).
+- `video_thumbnail` → `fc_native_video_thumbnail` 4.0.0 (fase 1).
 
 ### 3.3 Android / Gradle
 
-- ✅ AGP 9.3.1 + Kotlin 2.4.20 + `kotlin { compilerOptions }` (hecho en la fase 1, ver Estado).
-- Los plugins `device_info_plus`, `flutter_image_compress_common`, `network_info_plus`, `package_info_plus` y `wakelock_plus` aplican el Kotlin Gradle Plugin por su cuenta; Flutter avisa que una versión futura dejará de compilarlos. Se resuelve con las versiones mayores de §3.2, y después se pueden quitar `android.builtInKotlin=false` y `android.newDsl=false` de `gradle.properties`.
-- `gradle.properties`: `-Xmx8G -XX:MaxMetaspaceSize=4G` es excesivo para runners de CI; 4G/1G alcanza.
+- AGP 9.3.1 + Kotlin 2.4.20, Gradle 9.7.1 (fase 1).
+- `compileSdk` subido a 37: lo exige `permission_handler_android` 14. `targetSdk` sigue siendo el de Flutter.
+- `gradle.properties`: heap de 8G/4G a 4G/1G; el build de release se verificó desde cero.
+- Solo `flutter_image_compress_common` (1.1.1, la última) sigue aplicando el Kotlin Gradle Plugin por su cuenta: Flutter avisa que una versión futura dejará de compilarlo. No hay versión nueva upstream; hay que seguirlo. Por eso se mantienen `android.builtInKotlin=false` y `android.newDsl=false`, que de todos modos trae la plantilla de Flutter 3.50.
 
 ### 3.4 Go
 
-- `go.mod`: `go 1.26.1` → `1.27.x`, que ya se usa localmente (`go1.27.4`).
+- `go.mod`: `go 1.27.4`.
 
 ### 3.5 CI / GitHub Actions
 
-- 🔴 **`flutter-version: '3.x'` flotante rompe CI**: con Flutter 3.50, `flutter analyze` sale con código 1 por la deprecación de `package:flutter/material.dart` (→ `package:material_ui/material_ui.dart`). Fijar la versión exacta de Flutter en `ci.yml` y `release.yml` y migrar los 6 imports.
-- Node `20` (EOL desde abril de 2026) → `22` o `24` LTS en ambos workflows.
-- Actualizar actions a sus majors actuales: `actions/checkout`, `actions/setup-node`, `actions/setup-go`, `actions/setup-java`, `actions/upload-artifact` / `download-artifact`. Idealmente fijarlas por SHA.
-- Fijar `goversioninfo` a una versión concreta (ver §1.5).
+- Flutter fijo en `3.50.0`, Node `24` LTS.
+- Todas las actions fijadas por SHA en su última versión: `checkout` v7.0.1, `setup-node` v7.1.0, `setup-go` v7.0.0, `setup-java` v6.2.0, `upload-artifact` v7.0.2, `download-artifact` v8.0.2, `flutter-action` v2.23.0, `action-gh-release` v3.0.4. Se revisaron las notas de cada versión mayor: los cambios incompatibles son el runtime Node 24 y la verificación de hash en las descargas, y ninguno afecta a estos workflows.
+- `goversioninfo` fijado a v1.7.0 (fase 1).
 
 ---
 

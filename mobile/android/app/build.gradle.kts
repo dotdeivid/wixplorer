@@ -17,7 +17,10 @@ val hasReleaseKeystore = keystoreProperties.getProperty("storeFile") != null
 
 android {
     namespace = "com.wixplorer.wixplorer_mobile"
-    compileSdk = flutter.compileSdkVersion
+    // permission_handler_android 14 exige compilar contra API 37; Flutter 3.50
+    // trae 36 por defecto. Solo afecta las APIs disponibles al compilar: el
+    // comportamiento en runtime lo define targetSdk.
+    compileSdk = maxOf(flutter.compileSdkVersion, 37)
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
