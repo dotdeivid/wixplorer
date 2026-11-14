@@ -19,11 +19,5 @@ export default defineConfig([
       ecmaVersion: 2020,
       globals: globals.browser,
     },
-    rules: {
-      // Nueva en eslint-plugin-react-hooks 7.1. Los casos actuales resetean
-      // estado al cambiar de archivo/carpeta; migrarlos (key o estado
-      // derivado) está anotado como mejora en improvements.md.
-      'react-hooks/set-state-in-effect': 'warn',
-    },
   },
 ])

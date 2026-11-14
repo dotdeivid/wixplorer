@@ -25,9 +25,6 @@ export interface NetworkDeviceState {
   authStatus: AuthStatus;
   authError: string | null;
   token: string | null;
-  /** Último dispositivo cuya sesión expiró — permite re-abrir PinDialog. */
-  lastExpiredDevice: NetworkDevice | null;
-  clearExpiredDevice: () => void;
   authenticate: (device: NetworkDevice, pin: string) => Promise<boolean>;
   disconnect: () => void;
 
@@ -68,10 +65,24 @@ const PING_TIMEOUT_MS = 2500;
  */
 const MAX_CONSECUTIVE_FAILURES = 3;
 
+/**
+ * A partir de este tamaño se avisa si la descarga va a armarse en memoria
+ * (sin File System Access API): varios GB pueden agotar la RAM de la pestaña.
+ */
+const LARGE_IN_MEMORY_DOWNLOAD = 1024 * 1024 * 1024; // 1 GB
+
 // ── ID counter global ─────────────────────────────────────────────────────────
 
 let _idCounter = 1;
 function nextId() { return _idCounter++; }
+
+/** Carpetas primero y luego por nombre — el mismo orden que usa el modo USB. */
+function sortFolderFirst(items: FileItem[]): FileItem[] {
+  return items.sort((a, b) => {
+    if (a.isFolder === b.isFolder) return a.name.localeCompare(b.name);
+    return a.isFolder ? -1 : 1;
+  });
+}
 
 /** Entrada del historial "adelante": nodos del breadcrumb + paths reales. */
 interface ForwardEntry {
@@ -118,6 +129,11 @@ function formatSpeed(bps: number): string {
 }
 export { formatSpeed };
 
+function formatBytes(bytes: number): string {
+  if (bytes < 1024 * 1024 * 1024) return `${(bytes / (1024 * 1024)).toFixed(0)} MB`;
+  return `${(bytes / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
 // ── Hook ─────────────────────────────────────────────────────────────────────
 
 function friendlyDownloadError(err: unknown): string {
@@ -145,7 +161,16 @@ function friendlyDownloadError(err: unknown): string {
   return errorMessage(err) || 'Error al descargar';
 }
 
-export function useNetworkDevice(): NetworkDeviceState {
+export interface UseNetworkDeviceOptions {
+  /**
+   * Se llama cuando el servidor rechaza el token (sesión vencida o servidor
+   * reiniciado), con el dispositivo que estaba conectado — p.ej. para volver
+   * a pedir el PIN.
+   */
+  onSessionExpired?: (device: NetworkDevice) => void;
+}
+
+export function useNetworkDevice(options: UseNetworkDeviceOptions = {}): NetworkDeviceState {
   // Descubrimiento
   const [devices, setDevices] = useState<NetworkDevice[]>([]);
 
@@ -154,7 +179,6 @@ export function useNetworkDevice(): NetworkDeviceState {
   const [authStatus, setAuthStatus] = useState<AuthStatus>('idle');
   const [authError, setAuthError] = useState<string | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [lastExpiredDevice, setLastExpiredDevice] = useState<NetworkDevice | null>(null);
 
   // Exploración de archivos
   const [files, setFiles] = useState<FileItem[]>([]);
@@ -189,6 +213,12 @@ export function useNetworkDevice(): NetworkDeviceState {
   const navAbortRef = useRef<AbortController | null>(null);
 
   // Ref para health check sin stale closure
+  // Último callback recibido, para llamarlo sin re-crear resetConnection
+  const onSessionExpiredRef = useRef(options.onSessionExpired);
+  useEffect(() => {
+    onSessionExpiredRef.current = options.onSessionExpired;
+  }, [options.onSessionExpired]);
+
   const connectedRef = useRef<NetworkDevice | null>(null);
   useEffect(() => {
     connectedRef.current = connectedDevice;
@@ -227,9 +257,8 @@ export function useNetworkDevice(): NetworkDeviceState {
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   const resetConnection = useCallback((fromExpiry?: boolean) => {
-    if (fromExpiry) {
-      setLastExpiredDevice(connectedRef.current);
-    }
+    const expired = connectedRef.current;
+    if (fromExpiry && expired) onSessionExpiredRef.current?.(expired);
     setConnectedDevice(null);
     setToken(null);
     setAuthStatus('idle');
@@ -275,10 +304,6 @@ export function useNetworkDevice(): NetworkDeviceState {
     return () => clearInterval(id);
   }, [resetConnection]);
 
-  const clearExpiredDevice = useCallback(() => {
-    setLastExpiredDevice(null);
-  }, []);
-
   /**
    * Convierte los datos de la API en FileItem[] usando IDs estables por path.
    */
@@ -312,12 +337,14 @@ export function useNetworkDevice(): NetworkDeviceState {
   ): Promise<FileItem[]> => {
     if (!client.current) return [];
     try {
+      // Ordenado igual que en modo USB (carpetas primero, luego por nombre),
+      // también los parciales: así el listado progresivo no "salta" al final.
       const data = await client.current.listFiles(
         path,
-        onProgress ? (chunk) => onProgress(toFileItems(chunk)) : undefined,
+        onProgress ? (chunk) => onProgress(sortFolderFirst(toFileItems(chunk))) : undefined,
         signal,
       );
-      return toFileItems(data);
+      return sortFolderFirst(toFileItems(data));
     } catch (e) {
       if (errorMessage(e) === 'SESSION_EXPIRED') resetConnection(true);
       throw e;
@@ -354,7 +381,6 @@ export function useNetworkDevice(): NetworkDeviceState {
       setToken(sessionToken);
       setConnectedDevice(device);
       setAuthStatus('authenticated');
-      setLastExpiredDevice(null);
 
       client.current = new NetworkClient(device.ip, device.port, sessionToken);
       setIsLoading(true);
@@ -530,6 +556,18 @@ export function useNetworkDevice(): NetworkDeviceState {
     if (file.isFolder || !client.current) return;
     const path = pathById.current.get(file.id);
     if (!path) return;
+    // Sin File System Access API (Firefox/Safari, o la web servida por el
+    // teléfono sobre http://IP, que no es contexto seguro) el archivo se arma
+    // entero en memoria antes de guardarse.
+    if (!('showSaveFilePicker' in window) && file.size >= LARGE_IN_MEMORY_DOWNLOAD) {
+      toast.warning(`"${file.name}" se va a descargar en memoria (${formatBytes(file.size)})`, {
+        description: window.isSecureContext
+          ? 'Este navegador no puede escribir directo al disco. Con Chrome o Edge la descarga no usa RAM.'
+          : 'La página se abrió por http://, sin acceso directo al disco. Abrí WiXplorer desde la app de escritorio (localhost) con Chrome o Edge para descargar sin usar RAM.',
+        duration: 10000,
+      });
+    }
+
     const controller = new AbortController();
     downloadAbortRef.current = controller;
     try {
@@ -625,7 +663,6 @@ export function useNetworkDevice(): NetworkDeviceState {
   return {
     devices,
     connectedDevice, authStatus, authError, token,
-    lastExpiredDevice, clearExpiredDevice,
     authenticate, disconnect,
     files, currentPath, isLoading, error,
     canGoForward: forwardStack.length > 0,

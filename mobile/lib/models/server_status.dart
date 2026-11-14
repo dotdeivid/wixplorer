@@ -11,6 +11,9 @@ class ServerState {
   /// true cuando no se concedió acceso a todos los archivos (Android 11+):
   /// el servidor solo ve fotos, videos y audio.
   final bool limitedAccess;
+  /// Cuándo se detendrá solo el servidor si sigue sin actividad
+  /// (se informa junto con [inactivityWarning]).
+  final DateTime? autoStopAt;
 
   const ServerState({
     required this.status,
@@ -20,6 +23,7 @@ class ServerState {
     this.errorMessage,
     this.inactivityWarning = false,
     this.limitedAccess = false,
+    this.autoStopAt,
   });
 
   const ServerState.stopped()
@@ -29,13 +33,15 @@ class ServerState {
         pin = null,
         errorMessage = null,
         inactivityWarning = false,
-        limitedAccess = false;
+        limitedAccess = false,
+        autoStopAt = null;
 
   bool get isRunning => status == ServerStatus.running;
   bool get isBusy => status == ServerStatus.starting;
 
-  /// Retorna una copia con [inactivityWarning] modificado.
-  ServerState copyWith({bool? inactivityWarning}) {
+  /// Retorna una copia con el aviso de inactividad modificado.
+  /// [autoStopAt] se reemplaza siempre (pasar null lo borra).
+  ServerState copyWith({bool? inactivityWarning, DateTime? autoStopAt}) {
     return ServerState(
       status: status,
       ip: ip,
@@ -44,6 +50,7 @@ class ServerState {
       errorMessage: errorMessage,
       inactivityWarning: inactivityWarning ?? this.inactivityWarning,
       limitedAccess: limitedAccess,
+      autoStopAt: autoStopAt,
     );
   }
 }

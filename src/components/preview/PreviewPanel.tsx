@@ -6,6 +6,8 @@ import { getFileEmoji } from '../explorer/fileEmoji';
 
 /** Bytes que se leen para el preview de texto. */
 const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024;
+/** Caracteres que se muestran en el preview de texto. */
+const TEXT_PREVIEW_MAX_CHARS = 20000;
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PreviewType = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'fallback';
@@ -156,14 +158,23 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   getDirectUrl,
   onStreamVideo,
 }) => {
+  // El padre monta un PreviewPanel nuevo por archivo (key = file.id), así
+  // que el estado arranca limpio en cada archivo sin resetearlo a mano.
   const isMulti = (selectedFiles?.length ?? 0) > 1;
+  const previewType = file ? getPreviewType(file.name, file.isFolder) : 'fallback';
+  const wantsContent = !!file && !file.isFolder && !metadataOnly && previewType !== 'fallback';
+  // Modo red: imagen/video/audio se muestran con URL directa — el navegador
+  // hace carga progresiva y Range requests sin descargar el blob entero.
+  const directUrl = wantsContent && getDirectUrl &&
+    (previewType === 'image' || previewType === 'video' || previewType === 'audio')
+    ? getDirectUrl(file)
+    : null;
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [blobMimeType, setBlobMimeType] = useState<string | null>(null);
-  const [directUrl, setDirectUrl] = useState<string | null>(null);
   // cleanup fn for MediaSource URLs created by onStreamVideo
   const streamCleanupRef = React.useRef<(() => void) | null>(null);
   const [textContent, setTextContent] = useState<string | null>(null);
-  const [loadingBlob, setLoadingBlob] = useState(false);
+  const [loadingBlob, setLoadingBlob] = useState(() => wantsContent && !directUrl);
   const [isPlaying, setIsPlaying] = useState(false);
   const [videoTime, setVideoTime] = useState(0);
   const [videoDuration, setVideoDuration] = useState(0);
@@ -185,56 +196,21 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   }, [blobUrl]);
 
   useEffect(() => {
-    // Revoke previous blob / MediaSource URL on file change
-    if (blobUrl) {
-      URL.revokeObjectURL(blobUrl);
-      setBlobUrl(null);
-    }
-    if (streamCleanupRef.current) {
-      streamCleanupRef.current();
-      streamCleanupRef.current = null;
-    }
-    setDirectUrl(null);
-    setBlobMimeType(null);
-    setTextContent(null);
-    setIsPlaying(false);
-    setVideoTime(0);
-    setVideoDuration(0);
-    setPdfPage(1);
-    setPdfTotalPages(0);
-    setPdfDocInternal(null);
-
-    if (!file || file.isFolder || metadataOnly) return;
-
-    const ptype = getPreviewType(file.name, file.isFolder);
-    if (ptype === 'fallback') return;
-
+    if (!file || !wantsContent || directUrl) return;
+    const ptype = previewType;
     const abortCtrl = new AbortController();
-
-    // Modo red con URL directa — imagen/video/audio se muestran sin descargar
-    // el blob completo. El navegador hace carga progresiva y Range requests nativos.
-    if (getDirectUrl && (ptype === 'image' || ptype === 'video' || ptype === 'audio')) {
-      const url = getDirectUrl(file);
-      if (url) {
-        setDirectUrl(url);
-        return () => { abortCtrl.abort(); };
-      }
-    }
 
     // Streaming MSE para video MTP — la reproducción empieza sin esperar la descarga.
     if (ptype === 'video' && onStreamVideo) {
       const stream = onStreamVideo(file, abortCtrl.signal, () => videoRef.current?.currentTime ?? 0);
       if (stream) {
         streamCleanupRef.current = stream.cleanup;
-        // MediaSource URL → usar como src del <video> directamente
         setBlobUrl(stream.url);
         return () => { abortCtrl.abort(); };
       }
     }
 
     // Fallback: descarga blob completo (MTP/USB o tipos que lo requieren: pdf, text)
-    setLoadingBlob(true);
-
     // Texto: alcanza con el primer MB (se muestran 20 000 caracteres). En modo
     // WiFi se pide por Range; con signal, cambiar de archivo cancela la lectura.
     onFetchBlob(file, {
@@ -284,17 +260,24 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     }).catch(() => { if (!abortCtrl.signal.aborted) setLoadingBlob(false); });
 
     return () => { abortCtrl.abort(); };
+    // Solo al montar: un archivo distinto monta otro PreviewPanel (key).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [file?.id]);
+  }, []);
 
-  // Cleanup MediaSource URL on unmount
+  // Cleanup MediaSource stream on unmount
   useEffect(() => () => { streamCleanupRef.current?.(); }, []);
+
+  // Liberar cada blob URL cuando se reemplaza (página de PDF) o al desmontar
+  useEffect(() => {
+    if (!blobUrl) return;
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [blobUrl]);
 
   useEffect(() => {
     if (!pdfDocInternal) return;
 
+    // Mientras se arma la página nueva se sigue mostrando la anterior.
     let cancelled = false;
-    setLoadingBlob(true);
 
     const renderSinglePage = async () => {
       try {
@@ -307,10 +290,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
         const url = URL.createObjectURL(blob);
         
         if (!cancelled) {
-          setBlobUrl(prev => {
-            if (prev) URL.revokeObjectURL(prev);
-            return url;
-          });
+          setBlobUrl(url); // la anterior la libera el efecto de blobUrl
           setLoadingBlob(false);
         } else {
           URL.revokeObjectURL(url);
@@ -375,7 +355,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
   /* ── Render preview content ── */
   const renderPreview = () => {
-    if (loadingBlob && !directUrl) {
+    if (loadingBlob && !directUrl && !blobUrl) {
       return (
         <div className={styles.loadingPreview}>
           <div className={styles.spinner} />
@@ -483,11 +463,15 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     if (effectivePtype === 'text' && textContent !== null) {
       return (
+        // sandbox="" (sin scripts, origen opaco) además del escape: el texto
+        // viene del dispositivo y no debe poder ejecutar nada. Se corta antes
+        // de escapar para no partir una entidad (&amp; → &am).
         <iframe
           className={styles.previewFrame}
+          sandbox=""
           srcDoc={`<html><body style="margin:0;padding:8px;font-family:monospace;font-size:11px;white-space:pre-wrap;word-break:break-all;background:#1a1a1a;color:#ddd;">${textContent
-            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-            .substring(0, 20000)}</body></html>`}
+            .substring(0, TEXT_PREVIEW_MAX_CHARS)
+            .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}</body></html>`}
           title={file.name}
         />
       );

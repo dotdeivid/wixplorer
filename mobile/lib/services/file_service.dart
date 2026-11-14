@@ -57,6 +57,9 @@ class FileService {
   // Raíces de almacenamiento permitidas — se pobla al iniciar.
   final List<StorageInfo> _storages = [];
   final Set<String> _allowedRoots = {};
+  // Las mismas raíces con symlinks resueltos — se calculan una vez en init()
+  // para no repetir ese I/O en cada request.
+  List<String> _realRoots = const [];
 
   // Cuántos stat() corren en paralelo al listar una carpeta.
   // En Android, el VFS aguanta 8-10 calls paralelos sin penalización.
@@ -65,6 +68,7 @@ class FileService {
   Future<void> init() async {
     _storages.clear();
     _allowedRoots.clear();
+    _realRoots = const [];
 
     // getExternalStorageDirectories() solo existe en Android: en iOS lanza
     // UnsupportedError, así que ahí se cae directo a Documentos.
@@ -92,6 +96,8 @@ class FileService {
       _storages.add(StorageInfo(id: 'documents', name: 'Documentos', path: docs.path));
       _allowedRoots.add(docs.path);
     }
+
+    _realRoots = await _resolveRoots(_allowedRoots);
   }
 
   List<StorageInfo> get storages => List.unmodifiable(_storages);
@@ -99,7 +105,7 @@ class FileService {
   /// Lista archivos en [path] con stat() paralelos para mayor velocidad.
   /// Los elementos salen ordenados: carpetas primero, luego archivos, ambos por nombre.
   Future<List<FileItem>> listFiles(String path) async {
-    final resolved = _sanitizePath(path);
+    final resolved = await _sanitizePath(path);
     final dir = Directory(resolved);
     if (!await dir.exists()) {
       throw FileSystemException('No existe el directorio', resolved);
@@ -136,7 +142,7 @@ class FileService {
   /// a medida que se completan los stat(), con carpetas primero dentro de cada batch.
   /// Permite renderizado progresivo en el cliente sin esperar el listado completo.
   Stream<FileItem> streamFiles(String path) async* {
-    final resolved = _sanitizePath(path);
+    final resolved = await _sanitizePath(path);
     final dir = Directory(resolved);
     if (!await dir.exists()) {
       throw FileSystemException('No existe el directorio', resolved);
@@ -169,15 +175,15 @@ class FileService {
 
   /// Verifica que [path] existe y es accesible sin listar su contenido.
   Future<void> validatePath(String path) async {
-    final resolved = _sanitizePath(path); // lanza si fuera de los roots permitidos
+    final resolved = await _sanitizePath(path); // lanza si fuera de los roots permitidos
     if (!await Directory(resolved).exists()) {
       throw FileSystemException('No existe el directorio', resolved);
     }
   }
 
   /// Abre el archivo en [path] para lectura en streaming.
-  File openFile(String path) {
-    final resolved = _sanitizePath(path);
+  Future<File> openFile(String path) async {
+    final resolved = await _sanitizePath(path);
     return File(resolved);
   }
 
@@ -186,7 +192,7 @@ class FileService {
   /// permitido o si la entidad no existe.
   Future<void> deleteItem(String path) async {
     // allowRoot: false — nunca borrar una raíz entera (p.ej. /storage/emulated/0)
-    final resolved = resolveWithinRoots(path, _allowedRoots, allowRoot: false);
+    final resolved = await _resolveWithinRealRoots(path, _realRoots, allowRoot: false);
     final type = await FileSystemEntity.type(resolved);
     if (type == FileSystemEntityType.directory) {
       await Directory(resolved).delete(recursive: true);
@@ -217,7 +223,7 @@ class FileService {
     }
   }
 
-  String _sanitizePath(String path) => resolveWithinRoots(path, _allowedRoots);
+  Future<String> _sanitizePath(String path) => _resolveWithinRealRoots(path, _realRoots);
 
   /// Verifica que [path] quede dentro de alguna de las [roots] y lo devuelve
   /// normalizado. Lanza [FileSystemException] si no.
@@ -234,25 +240,35 @@ class FileService {
   /// Devuelve la ruta canonicalizada (no la real) para que los paths que ve
   /// el cliente sigan colgando de la raíz que conoce.
   @visibleForTesting
-  static String resolveWithinRoots(
+  static Future<String> resolveWithinRoots(
     String path,
     Iterable<String> roots, {
     bool allowRoot = true,
-  }) {
-    final resolved = _realPath(path);
+  }) async {
+    return _resolveWithinRealRoots(path, await _resolveRoots(roots), allowRoot: allowRoot);
+  }
+
+  /// Como [resolveWithinRoots], pero con las raíces ya resueltas.
+  static Future<String> _resolveWithinRealRoots(
+    String path,
+    List<String> realRoots, {
+    bool allowRoot = true,
+  }) async {
+    final resolved = await _realPath(path);
     if (resolved == null ||
-        !roots
-            .map(_realPath)
-            .whereType<String>()
-            .any(
-              (root) =>
-                  (allowRoot && resolved == root) || p.isWithin(root, resolved),
-            )) {
+        !realRoots.any(
+          (root) => (allowRoot && resolved == root) || p.isWithin(root, resolved),
+        )) {
       throw const FileSystemException(
         'Acceso denegado — path fuera del almacenamiento permitido',
       );
     }
     return p.canonicalize(path);
+  }
+
+  static Future<List<String>> _resolveRoots(Iterable<String> roots) async {
+    final real = await Future.wait(roots.map(_realPath));
+    return real.whereType<String>().toList();
   }
 
   /// Ruta absoluta, normalizada y con symlinks resueltos.
@@ -261,10 +277,11 @@ class FileService {
   /// resuelven aparte. Si el path no existe todavía, se resuelve el ancestro
   /// existente más cercano y se le agrega el resto. Devuelve null si no se
   /// puede resolver (p.ej. un symlink roto) — el caller lo trata como denegado.
-  static String? _realPath(String path) {
+  /// Usa I/O async para no bloquear el isolate del servidor.
+  static Future<String?> _realPath(String path) async {
     var existing = p.canonicalize(path);
     final missing = <String>[];
-    while (FileSystemEntity.typeSync(existing, followLinks: false) ==
+    while (await FileSystemEntity.type(existing, followLinks: false) ==
         FileSystemEntityType.notFound) {
       final parent = p.dirname(existing);
       if (parent == existing) break;
@@ -272,7 +289,7 @@ class FileService {
       existing = parent;
     }
     try {
-      final real = File(existing).resolveSymbolicLinksSync();
+      final real = await File(existing).resolveSymbolicLinks();
       return p.joinAll([real, ...missing]);
     } on FileSystemException {
       return null;

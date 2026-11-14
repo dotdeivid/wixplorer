@@ -1,6 +1,7 @@
 import { USBManager } from '../usb/USBManager';
 import { MtpPacket, parseMtpString, parseMtpUInt32Array, serializeMtpString } from './MtpPacket';
 import { ContainerType, MtpOperationCode, MtpResponseCode, HEADER_LENGTH, MTP_PROP_OBJECT_FILENAME, MTP_PROP_OBJECT_SIZE, MTP_PROP_DATE_MODIFIED } from './MtpConstants';
+import { debug } from '../../utils/debug';
 
 export interface StorageInfo {
   storageType: number;
@@ -82,7 +83,7 @@ export class MtpClient {
   public async connect(): Promise<void> {
     await this.usbManager.requestDevice();
     try { await this.getDeviceInfo(); } catch (e) {
-      console.log('[MTP] GetDeviceInfo failed, continuing...', e);
+      debug('[MTP] GetDeviceInfo failed, continuing...', e);
     }
     await this.openSession();
   }
@@ -168,41 +169,41 @@ export class MtpClient {
     
       const dataPacket = await this.receiveResponse();
       if (dataPacket.type === ContainerType.Response) {
-         console.log(`[MTP] GetDeviceInfo received immediate response (Code: 0x${dataPacket.code.toString(16)})`);
+         debug(`[MTP] GetDeviceInfo received immediate response (Code: 0x${dataPacket.code.toString(16)})`);
          return;
       }
     
       await this.receiveResponse(); // read final response
-      console.log('[MTP] GetDeviceInfo completed');
+      debug('[MTP] GetDeviceInfo completed');
     });
   }
 
   public openSession(): Promise<void> {
     return this.exclusive(async () => {
       this.sessionId = 1; // Basic session ID
-      console.log('[MTP] Sending OpenSession...');
+      debug('[MTP] Sending OpenSession...');
       await this.sendCommand(MtpOperationCode.OpenSession, [this.sessionId]);
       const response = await this.receiveResponse();
-      console.log('[MTP] OpenSession response:', response);
+      debug('[MTP] OpenSession response:', response);
     
       if (response.code === 0x201E) {
-        console.log('[MTP] Session already open, proceeding normally.');
+        debug('[MTP] Session already open, proceeding normally.');
       } else if (response.code !== 0x2001) {
         console.warn(`[MTP] OpenSession unexpected code: 0x${response.code.toString(16)}`);
       } else {
-        console.log('[MTP] OpenSession OK');
+        debug('[MTP] OpenSession OK');
       }
     });
   }
 
   public getStorageIDs(): Promise<number[]> {
     return this.exclusive(async () => {
-      console.log('[MTP] Sending GetStorageIDs...');
+      debug('[MTP] Sending GetStorageIDs...');
       await this.sendCommand(MtpOperationCode.GetStorageIDs);
     
       // Some devices might throw an immediate response if session is invalid.
       const dataPacket = await this.receiveResponse();
-      console.log('[MTP] getStorageIDs first packet type:', dataPacket.type);
+      debug('[MTP] getStorageIDs first packet type:', dataPacket.type);
     
       if (dataPacket.type === ContainerType.Response) {
          console.error(`[MTP] Received Response instead of Data for GetStorageIDs! Code: 0x${dataPacket.code.toString(16)}`);
@@ -213,7 +214,7 @@ export class MtpClient {
         console.warn('[MTP] Expected Data packet for GetStorageIDs, got type:', dataPacket.type);
       }
     
-      console.log('[MTP] Waiting for final Response for GetStorageIDs...');
+      debug('[MTP] Waiting for final Response for GetStorageIDs...');
       await this.receiveResponse(); // read final response
     
       if (!dataPacket.payload || dataPacket.payload.byteLength === 0) {
@@ -223,7 +224,7 @@ export class MtpClient {
 
       const view = new DataView(dataPacket.payload);
       const { array } = parseMtpUInt32Array(view, 0);
-      console.log('[MTP] Parsed Storage IDs:', array);
+      debug('[MTP] Parsed Storage IDs:', array);
       return array;
     });
   }
@@ -527,7 +528,7 @@ export class MtpClient {
       // If the code is below the valid MTP response range (0x2000+), it's a
       // non-standard intermediate packet from OEM firmware — read the real response.
       if (response.code < 0x2000) {
-        console.log(`[MTP] RenameObject: got intermediate code 0x${response.code.toString(16)}, reading final response...`);
+        debug(`[MTP] RenameObject: got intermediate code 0x${response.code.toString(16)}, reading final response...`);
         try {
           response = await this.receiveResponse();
         } catch (e) {

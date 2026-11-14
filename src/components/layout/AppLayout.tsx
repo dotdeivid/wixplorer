@@ -29,8 +29,13 @@ const DEFAULT_PANEL_WIDTH = 240;
 
 const AppLayout: React.FC = () => {
   const mtpState = useMTPDevice();
-  const networkState = useNetworkDevice();
   const [pinDialogDevice, setPinDialogDevice] = useState<NetworkDevice | null>(null);
+  /* ── Re-autenticar cuando la sesión expira ──────────────────────────── */
+  const handleSessionExpired = useCallback((device: NetworkDevice) => {
+    toast.error('Sesión expirada — volvé a ingresar el PIN');
+    setPinDialogDevice(device);
+  }, []);
+  const networkState = useNetworkDevice({ onSessionExpired: handleSessionExpired });
   const [zipProgress, setZipProgress] = useState<number | null>(null);
 
   // Constante de sesión — no cambia mientras la página esté abierta
@@ -109,21 +114,21 @@ const AppLayout: React.FC = () => {
   const dragStartX = useRef(0);
   const dragStartWidth = useRef(DEFAULT_PANEL_WIDTH);
 
-  React.useEffect(() => {
-    if (mtpState.error) setErrorDismissed(false);
-  }, [mtpState.error]);
+  // Ajustes de estado ante cambios de props/estado externo: se hacen durante
+  // el render comparando con el valor anterior (patrón recomendado por React
+  // en lugar de un efecto que vuelve a renderizar).
 
-  /* ── Re-autenticar cuando la sesión expira ──────────────────────────── */
-  useEffect(() => {
-    if (networkState.lastExpiredDevice) {
-      toast.error('Sesión expirada — volvé a ingresar el PIN');
-      setPinDialogDevice(networkState.lastExpiredDevice);
-      networkState.clearExpiredDevice();
-    }
-  }, [networkState.lastExpiredDevice]); // eslint-disable-line react-hooks/exhaustive-deps
+  // Un error nuevo vuelve a mostrar el banner aunque se haya cerrado el anterior
+  const [prevError, setPrevError] = useState(activeError);
+  if (activeError !== prevError) {
+    setPrevError(activeError);
+    if (activeError) setErrorDismissed(false);
+  }
 
   /* ── Auto-hospedado: abrir PinDialog en cuanto el dispositivo se pre-carga ── */
-  useEffect(() => {
+  const [prevDevices, setPrevDevices] = useState(networkState.devices);
+  if (networkState.devices !== prevDevices) {
+    setPrevDevices(networkState.devices);
     if (
       selfHosted &&
       networkState.devices.length > 0 &&
@@ -132,7 +137,7 @@ const AppLayout: React.FC = () => {
     ) {
       setPinDialogDevice(networkState.devices[0]);
     }
-  }, [networkState.devices]); // eslint-disable-line react-hooks/exhaustive-deps
+  }
 
   /* ── Network device auth ────────────────────────────────────────────── */
   const handlePinConfirm = useCallback(async (pin: string) => {
@@ -148,11 +153,13 @@ const AppLayout: React.FC = () => {
     setPinDialogDevice(null);
   }, []);
 
-  // Clear selection when navigating
-  React.useEffect(() => {
+  // Limpiar la selección al navegar (USB o WiFi). El ancla del shift-click
+  // no hace falta resetearla: si ya no está en la lista, se ignora.
+  const [prevPath, setPrevPath] = useState(activeCurrentPath);
+  if (activeCurrentPath !== prevPath) {
+    setPrevPath(activeCurrentPath);
     setSelectedFiles([]);
-    selectionAnchorRef.current = null;
-  }, [mtpState.currentPath]);
+  }
 
   /* ── Selection ──────────────────────────────────────────────────────── */
   const handleSelectFile = useCallback((file: FileItem, event: React.MouseEvent, allVisibleFiles: FileItem[]) => {
@@ -572,6 +579,7 @@ const AppLayout: React.FC = () => {
               <div className={styles.resizeHandle} onMouseDown={onResizeMouseDown} />
               <div style={{ width: panelWidth, minWidth: panelWidth, flexShrink: 0 }}>
                 <PreviewPanel
+                  key={primarySelected?.id ?? 'none'}
                   file={primarySelected}
                   selectedFiles={selectedFiles}
                   onDownload={activeDownloadFile}
