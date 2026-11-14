@@ -1,7 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/gestures.dart';
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/server_status.dart';
 import '../services/server_service.dart';
@@ -63,6 +63,8 @@ class _HomeScreenState extends State<HomeScreen> {
             StatusCard(serverState: _serverState),
             if (!_serverState.isRunning) const _HintText(),
             const Spacer(),
+            if (_serverState.isRunning && _serverState.limitedAccess)
+              const _LimitedAccessBanner(),
             if (_serverState.inactivityWarning)
               const _InactivityBanner(),
             if (_serverState.status == ServerStatus.error)
@@ -151,6 +153,35 @@ class _InactivityBanner extends StatelessWidget {
           Expanded(
             child: Text(
               '15 min sin actividad — el servidor sigue activo',
+              style: TextStyle(color: Color(0xFFFFCC00), fontSize: 12),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _LimitedAccessBanner extends StatelessWidget {
+  const _LimitedAccessBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      decoration: BoxDecoration(
+        color: const Color(0xFF3A2F00),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFFFFCC00).withAlpha(120)),
+      ),
+      child: const Row(
+        children: [
+          Icon(Icons.folder_off_outlined, color: Color(0xFFFFCC00), size: 16),
+          SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Acceso limitado: solo fotos, videos y audio. Permití "Acceso a todos los archivos" en Ajustes para ver documentos y descargas.',
               style: TextStyle(color: Color(0xFFFFCC00), fontSize: 12),
             ),
           ),

@@ -8,6 +8,9 @@ class ServerState {
   final String? errorMessage;
   /// Se activa cuando pasan 15 minutos sin ninguna petición al servidor.
   final bool inactivityWarning;
+  /// true cuando no se concedió acceso a todos los archivos (Android 11+):
+  /// el servidor solo ve fotos, videos y audio.
+  final bool limitedAccess;
 
   const ServerState({
     required this.status,
@@ -16,6 +19,7 @@ class ServerState {
     this.pin,
     this.errorMessage,
     this.inactivityWarning = false,
+    this.limitedAccess = false,
   });
 
   const ServerState.stopped()
@@ -24,7 +28,8 @@ class ServerState {
         port = 7070,
         pin = null,
         errorMessage = null,
-        inactivityWarning = false;
+        inactivityWarning = false,
+        limitedAccess = false;
 
   bool get isRunning => status == ServerStatus.running;
   bool get isBusy => status == ServerStatus.starting;
@@ -38,6 +43,7 @@ class ServerState {
       pin: pin,
       errorMessage: errorMessage,
       inactivityWarning: inactivityWarning ?? this.inactivityWarning,
+      limitedAccess: limitedAccess,
     );
   }
 }

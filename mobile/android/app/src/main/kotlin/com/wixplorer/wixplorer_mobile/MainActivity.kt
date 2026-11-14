@@ -11,10 +11,17 @@ class MainActivity : FlutterActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        MethodChannel(
+        val channel = MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
             "com.wixplorer/foreground",
-        ).setMethodCallHandler { call, result ->
+        )
+
+        // El sistema detuvo el servicio por su cuenta → avisar a Dart.
+        WiXplorerForegroundService.onSystemStop = {
+            runOnUiThread { channel.invokeMethod("onSystemStop", null) }
+        }
+
+        channel.setMethodCallHandler { call, result ->
             when (call.method) {
                 "start" -> {
                     val text = call.argument<String>("text") ?: "Servidor activo"
@@ -39,5 +46,10 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        WiXplorerForegroundService.onSystemStop = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 }

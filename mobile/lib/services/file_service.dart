@@ -66,23 +66,26 @@ class FileService {
     _storages.clear();
     _allowedRoots.clear();
 
-    // Almacenamiento interno
-    final extDirs = await getExternalStorageDirectories();
-    if (extDirs != null && extDirs.isNotEmpty) {
-      final root = _resolveStorageRoot(extDirs.first.path);
-      _storages.add(StorageInfo(id: 'internal', name: 'Almacenamiento interno', path: root));
-      _allowedRoots.add(root);
-    }
+    // getExternalStorageDirectories() solo existe en Android: en iOS lanza
+    // UnsupportedError, así que ahí se cae directo a Documentos.
+    if (Platform.isAndroid) {
+      try {
+        final extDirs = await getExternalStorageDirectories();
+        if (extDirs != null && extDirs.isNotEmpty) {
+          // Almacenamiento interno
+          final root = _resolveStorageRoot(extDirs.first.path);
+          _storages.add(StorageInfo(id: 'internal', name: 'Almacenamiento interno', path: root));
+          _allowedRoots.add(root);
 
-    // Intento de detección de tarjeta SD en Android
-    try {
-      final externalDirs = await getExternalStorageDirectories();
-      if (externalDirs != null && externalDirs.length > 1) {
-        final sdRoot = _resolveStorageRoot(externalDirs[1].path);
-        _storages.add(StorageInfo(id: 'sdcard', name: 'Tarjeta SD', path: sdRoot));
-        _allowedRoots.add(sdRoot);
-      }
-    } catch (_) {}
+          // Tarjeta SD, si hay
+          if (extDirs.length > 1) {
+            final sdRoot = _resolveStorageRoot(extDirs[1].path);
+            _storages.add(StorageInfo(id: 'sdcard', name: 'Tarjeta SD', path: sdRoot));
+            _allowedRoots.add(sdRoot);
+          }
+        }
+      } catch (_) {}
+    }
 
     if (_storages.isEmpty) {
       final docs = await getApplicationDocumentsDirectory();

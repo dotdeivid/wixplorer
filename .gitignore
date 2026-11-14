@@ -19,6 +19,7 @@ mobile/assets/www/
 dist_bin/
 WiXplorer_test
 resource.syso
+resource_*.syso
 
 # Editor directories and files
 .vscode/*

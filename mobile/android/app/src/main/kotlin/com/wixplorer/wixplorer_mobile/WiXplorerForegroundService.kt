@@ -22,6 +22,13 @@ class WiXplorerForegroundService : Service() {
         const val ACTION_START   = "com.wixplorer.START"
         const val ACTION_STOP    = "com.wixplorer.STOP"
         const val EXTRA_TEXT     = "notif_text"
+
+        /**
+         * Lo registra MainActivity para avisarle a Dart que Android cortó el
+         * servicio (límite de tiempo de dataSync en Android 15+) y que el
+         * servidor HTTP también tiene que detenerse.
+         */
+        @Volatile var onSystemStop: (() -> Unit)? = null
     }
 
     override fun onCreate() {
@@ -30,13 +37,16 @@ class WiXplorerForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        if (intent?.action == ACTION_STOP) {
+        // intent == null: Android recreó el servicio después de matar el
+        // proceso. El servidor HTTP vive en el FlutterEngine y ya no existe,
+        // así que no hay que mostrar una notificación de "activo".
+        if (intent == null || intent.action == ACTION_STOP) {
             stopForeground(STOP_FOREGROUND_REMOVE)
             stopSelf()
             return START_NOT_STICKY
         }
 
-        val text = intent?.getStringExtra(EXTRA_TEXT) ?: "Servidor activo"
+        val text = intent.getStringExtra(EXTRA_TEXT) ?: "Servidor activo"
         val notification = buildNotification(text)
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -49,10 +59,29 @@ class WiXplorerForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        return START_STICKY
+        // NOT_STICKY: si el sistema mata el proceso, el servidor muere con él;
+        // recrear solo el servicio dejaría una notificación sin servidor.
+        return START_NOT_STICKY
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
+
+    /** La app se cerró desde recientes: el FlutterEngine (y el servidor) mueren. */
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+    }
+
+    /**
+     * Android 15+: los servicios dataSync tienen un límite de 6 h cada 24 h.
+     * Al agotarse hay que detenerse en pocos segundos o el sistema lanza ANR.
+     */
+    override fun onTimeout(startId: Int, fgsType: Int) {
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        stopSelf()
+        onSystemStop?.invoke()
+    }
 
     // ── Helpers ──────────────────────────────────────────────────────────────
 

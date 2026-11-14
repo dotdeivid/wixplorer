@@ -3,6 +3,7 @@ import { MtpClient } from '../services/mtp/MtpClient';
 import { createMtpVideoStream, type MtpVideoStreamResult } from '../services/mtp/MtpVideoStream';
 import { USBManager } from '../services/usb/USBManager';
 import { ThumbCache } from '../services/cache/ThumbCache';
+import { clearLruCache } from './useThumbnail';
 import { errorMessage, errorName } from '../utils/errors';
 
 export interface FileItem {
@@ -24,6 +25,35 @@ export interface AvailableDevice {
 }
 
 const client = new MtpClient();
+
+/** Opciones para leer un archivo en memoria (preview). */
+export interface FetchBlobOptions {
+  signal?: AbortSignal;
+  /** Tope de bytes a leer (solo lo respeta el modo WiFi, vía Range). */
+  maxBytes?: number;
+}
+
+/** Lee un archivo completo (o su principio) en memoria para el preview. */
+export type FetchBlobFn = (file: FileItem, opts?: FetchBlobOptions) => Promise<Blob | null>;
+
+/** Crea un stream de video (MSE) para el preview. */
+export type StreamVideoFn = (
+  file: FileItem,
+  signal: AbortSignal,
+  getCurrentTime?: () => number,
+) => { url: string; cleanup: () => void } | null;
+
+/** Scope de ThumbCache para el dispositivo USB conectado. */
+function thumbScopeFor(device: USBDevice | null): string | null {
+  if (!device) return null;
+  return `usb:${device.vendorId}:${device.productId}:${device.serialNumber ?? ''}`;
+}
+
+/** Olvida las miniaturas en memoria del dispositivo anterior (los handles cambian). */
+function resetThumbState() {
+  ThumbCache.setScope(null);
+  clearLruCache();
+}
 
 /**
  * Convierte errores técnicos de descarga en mensajes comprensibles para el usuario.
@@ -103,7 +133,7 @@ export function useMTPDevice() {
       // After physical disconnect, device.opened becomes false so client.isConnected
       // returns false — check our React state ref instead to always reset correctly.
       if (isConnectedRef.current) {
-        ThumbCache.clear();
+        resetThumbState();
         setIsConnected(false);
         setDeviceName('');
         setFiles([]);
@@ -177,6 +207,8 @@ export function useMTPDevice() {
 
   /* ── After connecting: get storages with retry ───────────────────── */
   const afterConnect = useCallback(async () => {
+    clearLruCache();
+    ThumbCache.setScope(thumbScopeFor(client.currentUsbDevice));
     setIsConnected(client.isConnected);
     setDeviceName(client.deviceName);
 
@@ -238,7 +270,7 @@ export function useMTPDevice() {
   /* ── Disconnect ──────────────────────────────────────────────────── */
   const disconnect = useCallback(async () => {
     setIsLoading(true);
-    ThumbCache.clear();
+    resetThumbState();
 
     const usbDevice = client.currentUsbDevice;
     const name = client.deviceName;
@@ -359,11 +391,12 @@ export function useMTPDevice() {
       }
     } catch (err) {
       if (errorName(err) === 'AbortError') {
-        // Cancelado por el usuario — limpiar endpoint USB para la próxima descarga
+        // Cancelado por el usuario — getObject ya canceló la transacción en
+        // el dispositivo; solo falta descartar el archivo parcial.
         await fsWritable?.abort().catch(() => {});
-        await client.clearHalts();
       } else {
-        await fsWritable?.close().catch(() => {});
+        // abort() descarta el archivo parcial; close() lo dejaría truncado en disco
+        await fsWritable?.abort().catch(() => {});
         console.error(err);
         setError(friendlyDownloadError(err));
       }
@@ -397,7 +430,7 @@ export function useMTPDevice() {
    *  For images and videos, tries GetThumb first (embedded JPEG, instant).
    *  Falls back to GetObject (full file) only if no thumbnail is available.
    */
-  const previewFile = useCallback(async (file: FileItem): Promise<Blob | null> => {
+  const previewFile = useCallback(async (file: FileItem, opts?: FetchBlobOptions): Promise<Blob | null> => {
     if (file.isFolder) return null;
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     const isMedia = /^(jpg|jpeg|png|gif|bmp|webp|heic|heif|mp4|mov|avi|mkv|3gp|m4v)$/.test(ext);
@@ -406,7 +439,10 @@ export function useMTPDevice() {
         const thumb = await client.getThumb(file.id);
         if (thumb && thumb.size > 0) return thumb;
       }
-      return await client.getObject(file.id, undefined, undefined, file.size);
+      if (opts?.signal?.aborted) return null;
+      // Con signal: si el usuario cambia de archivo, la transferencia se
+      // cancela y libera la cola MTP en lugar de seguir hasta el final.
+      return await client.getObject(file.id, undefined, opts?.signal, file.size);
     } catch (e) {
       console.warn('[useMTPDevice] previewFile error:', e);
       return null;
@@ -422,11 +458,12 @@ export function useMTPDevice() {
   const streamVideo = useCallback((
     file: FileItem,
     signal?: AbortSignal,
+    getCurrentTime?: () => number,
   ): MtpVideoStreamResult | null => {
     if (file.isFolder || !client.isConnected) return null;
     const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     if (!/^(mp4|mov|m4v|3gp|webm)$/.test(ext)) return null;
-    return createMtpVideoStream(file.id, client, signal, file.size);
+    return createMtpVideoStream(file.id, client, signal, file.size, getCurrentTime);
   }, []);
 
   /** Fetch a thumbnail blob via MTP GetThumb (0x100A) */
@@ -437,12 +474,15 @@ export function useMTPDevice() {
   /**
    * Verify a file handle still exists on the device.
    * Returns a FileItem if found, null if the handle is invalid/deleted.
-   * Used by the Recents feature.
+   * Used by the Recents feature: handles are reassigned between sessions, so
+   * when [expectedName] is given a handle that now points to a different file
+   * also counts as "not found".
    */
-  const verifyFile = useCallback(async (id: number): Promise<FileItem | null> => {
+  const verifyFile = useCallback(async (id: number, expectedName?: string): Promise<FileItem | null> => {
     try {
       const info = await client.getObjectInfo(id);
       if (!info) return null;
+      if (expectedName !== undefined && info.filename !== expectedName) return null;
       return {
         id,
         name: info.filename || 'Unknown',

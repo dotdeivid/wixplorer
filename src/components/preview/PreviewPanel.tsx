@@ -1,8 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import styles from './PreviewPanel.module.css';
-import type { FileItem } from '../../hooks/useMTPDevice';
+import type { FetchBlobFn, FileItem, StreamVideoFn } from '../../hooks/useMTPDevice';
 import type { PDFDocument } from 'pdf-lib';
 import { getFileEmoji } from '../explorer/fileEmoji';
+
+/** Bytes que se leen para el preview de texto. */
+const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024;
 
 /* ─── Types ──────────────────────────────────────────────────────────────── */
 type PreviewType = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'fallback';
@@ -105,7 +108,7 @@ interface PreviewPanelProps {
   selectedFiles?: FileItem[];
   onDownload: (file: FileItem) => void;
   isDownloading: boolean;
-  onFetchBlob: (file: FileItem) => Promise<Blob | null>;
+  onFetchBlob: FetchBlobFn;
   /**
    * When true, skips the preview area and shows only file metadata.
    * Used in gallery mode where the preview is shown in the center content area.
@@ -123,7 +126,7 @@ interface PreviewPanelProps {
    * Retorna la URL de MediaSource de forma sincrónica; el streaming USB
    * corre en segundo plano → la reproducción empieza sin esperar la descarga.
    */
-  onStreamVideo?: (file: FileItem, signal: AbortSignal) => { url: string; cleanup: () => void } | null;
+  onStreamVideo?: StreamVideoFn;
 }
 
 /* ─── Folder fallback icon inline (no import loop) ────────── */
@@ -220,7 +223,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     // Streaming MSE para video MTP — la reproducción empieza sin esperar la descarga.
     if (ptype === 'video' && onStreamVideo) {
-      const stream = onStreamVideo(file, abortCtrl.signal);
+      const stream = onStreamVideo(file, abortCtrl.signal, () => videoRef.current?.currentTime ?? 0);
       if (stream) {
         streamCleanupRef.current = stream.cleanup;
         // MediaSource URL → usar como src del <video> directamente
@@ -232,7 +235,12 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
     // Fallback: descarga blob completo (MTP/USB o tipos que lo requieren: pdf, text)
     setLoadingBlob(true);
 
-    onFetchBlob(file).then(blob => {
+    // Texto: alcanza con el primer MB (se muestran 20 000 caracteres). En modo
+    // WiFi se pide por Range; con signal, cambiar de archivo cancela la lectura.
+    onFetchBlob(file, {
+      signal: abortCtrl.signal,
+      maxBytes: ptype === 'text' ? TEXT_PREVIEW_MAX_BYTES : undefined,
+    }).then(blob => {
       if (abortCtrl.signal.aborted || !blob) { setLoadingBlob(false); return; }
 
       if (ptype === 'text') {

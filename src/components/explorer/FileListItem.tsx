@@ -4,6 +4,7 @@ import type { FileItem } from '../../hooks/useMTPDevice';
 import { SmallFolderIcon } from './FileItem';
 import { getFileEmoji } from './fileEmoji';
 import { useThumbnail, isImageFile } from '../../hooks/useThumbnail';
+import { MTP_MAX_STRING_LENGTH } from '../../services/mtp/MtpPacket';
 
 interface FileListItemProps {
   file: FileItem;
@@ -82,6 +83,7 @@ const InlineRenameInput: React.FC<{
       className={styles.renameInput}
       defaultValue={file.name}
       spellCheck={false}
+      maxLength={MTP_MAX_STRING_LENGTH}
       onClick={e => e.stopPropagation()}
       onDoubleClick={e => e.stopPropagation()}
       onContextMenu={e => e.stopPropagation()}

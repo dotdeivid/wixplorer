@@ -61,7 +61,9 @@ jobs:
 
       - uses: subosito/flutter-action@v2
         with:
-          flutter-version: '3.x'
+          # Versión fija: con '3.x' cada release nueva de Flutter puede
+          # romper CI (deprecaciones en analyze, mínimos de AGP/Gradle).
+          flutter-version: '3.50.0'
           channel: stable
           cache: true
 
@@ -123,31 +125,31 @@ jobs:
           go test .
 
       - name: Instalar goversioninfo
-        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@latest
+        run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0
 
-      - name: Generar resource.syso (metadatos + ícono Windows)
+      # El sufijo _windows_amd64 hace que Go enlace el .syso solo para ese
+      # target; el build de macOS lo ignora sin tener que borrarlo.
+      # -64: objeto COFF de amd64 (sin el flag sale de 386 y el link falla).
+      - name: Generar resource_windows_amd64.syso (metadatos + ícono Windows)
         run: |
-          ~/go/bin/goversioninfo \
+          ~/go/bin/goversioninfo -64 \
             -icon="build/icon.ico" \
-            -o="resource.syso" \
+            -o="resource_windows_amd64.syso" \
             "scripts/versioninfo.json"
 
+      # Se compila el paquete (.) y no main.go: con una lista de archivos,
+      # Go ignora los .syso del directorio y el .exe sale sin ícono.
       - name: Build Windows .exe
         run: |
           mkdir -p dist_bin
           GOOS=windows GOARCH=amd64 go build \
             -ldflags="-s -w -H windowsgui" \
-            -o dist_bin/WiXplorer.exe main.go
-
-      # resource.syso solo es para Windows; eliminarlo antes del build macOS
-      # evita que Go lo intente enlazar en otro GOOS.
-      - name: Eliminar resource.syso
-        run: rm -f resource.syso
+            -o dist_bin/WiXplorer.exe .
 
       - name: Build macOS Universal (arm64 + amd64)
         run: |
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist_bin/WiXplorer_arm64 main.go
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist_bin/WiXplorer_amd64 main.go
+          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o dist_bin/WiXplorer_arm64 .
+          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o dist_bin/WiXplorer_amd64 .
           lipo -create -output dist_bin/WiXplorer_mac \
             dist_bin/WiXplorer_arm64 \
             dist_bin/WiXplorer_amd64

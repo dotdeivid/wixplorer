@@ -5,6 +5,7 @@ import {
   parseMtpString,
   parseMtpUInt32Array,
   serializeMtpString,
+  MTP_MAX_STRING_LENGTH,
 } from './MtpPacket';
 
 /** Arma un buffer a partir de bytes literales. */
@@ -140,5 +141,16 @@ describe('parseMtpUInt32Array', () => {
 
   it('buffer sin espacio para el count devuelve array vacío', () => {
     expect(parseMtpUInt32Array(new DataView(bytes(1, 2)), 0)).toEqual({ array: [], newOffset: 0 });
+  });
+});
+
+describe('serializeMtpString — límite de longitud', () => {
+  it('acepta hasta MTP_MAX_STRING_LENGTH caracteres', () => {
+    const buf = serializeMtpString('a'.repeat(MTP_MAX_STRING_LENGTH));
+    expect(new DataView(buf).getUint8(0)).toBe(255);
+  });
+
+  it('lanza si el nombre no entra en el byte de conteo', () => {
+    expect(() => serializeMtpString('a'.repeat(MTP_MAX_STRING_LENGTH + 1))).toThrow(/demasiado largo/);
   });
 });

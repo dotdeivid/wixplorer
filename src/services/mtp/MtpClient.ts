@@ -34,10 +34,33 @@ export interface ObjectInfo {
   dateModified: string;
 }
 
+/** Tamaño de cada lectura bulk-in. */
+const CHUNK_SIZE = 65536;
+
+function abortError(): DOMException {
+  return new DOMException('Download cancelled', 'AbortError');
+}
+
 export class MtpClient {
   private usbManager: USBManager;
   private transactionId: number = 0;
   private sessionId: number = 0;
+
+  /**
+   * Cola de transacciones. MTP admite una sola transacción a la vez sobre el
+   * par de endpoints bulk: si dos operaciones se intercalan (p.ej. listado +
+   * miniaturas + preview), cada una puede leer la respuesta de la otra.
+   * Toda operación pública pasa por exclusive(), que la encadena detrás de
+   * la anterior. Las operaciones largas (descargas, streaming de video)
+   * retienen la cola hasta terminar o ser abortadas.
+   */
+  private queue: Promise<void> = Promise.resolve();
+
+  private exclusive<T>(fn: () => Promise<T>): Promise<T> {
+    const run = this.queue.then(fn, fn);
+    this.queue = run.then(() => {}, () => {});
+    return run;
+  }
 
   constructor() {
     this.usbManager = new USBManager();
@@ -55,10 +78,6 @@ export class MtpClient {
     return this.usbManager.currentUsbDevice;
   }
 
-  /** Limpia endpoints bulk — llamar después de abortar una transferencia. */
-  public async clearHalts(): Promise<void> {
-    return this.usbManager.clearHalts();
-  }
 
   public async connect(): Promise<void> {
     await this.usbManager.requestDevice();
@@ -78,31 +97,40 @@ export class MtpClient {
   }
 
   public async disconnect(): Promise<void> {
-    try {
-      if (this.sessionId !== 0) {
+    if (this.sessionId !== 0) {
+      const closeSession = this.exclusive(async () => {
         await this.sendCommand(MtpOperationCode.CloseSession, [this.sessionId]);
         // IMPORTANT: must read the CloseSession response before closing the device.
         // On macOS, leaving unread data in the bulk-IN buffer puts the bulk-OUT
         // endpoint in a stall state. On reconnect, transferOut hangs indefinitely.
         await this.receiveResponse();
-      }
-    } catch {
-      // Ignore errors — device may have already disconnected
+      }).catch(() => {
+        // Ignore errors — device may have already disconnected
+      });
+      // Si hay una transferencia larga en curso, no esperar indefinidamente:
+      // cerrar el dispositivo hace fallar los transfers pendientes y libera la cola.
+      await Promise.race([closeSession, new Promise(r => setTimeout(r, 2000))]);
     }
     await this.usbManager.disconnect();
     this.sessionId = 0;
     this.transactionId = 0;
   }
 
-  private async nextTransactionId(): Promise<number> {
-    return ++this.transactionId;
+  /** Envía un comando y devuelve su transaction ID (lo usa la fase de datos). */
+  private async sendCommand(code: number, args: number[] = []): Promise<number> {
+    const tid = ++this.transactionId;
+    const packet = MtpPacket.buildCommand(code, tid, args);
+    await this.usbManager.sendBulk(packet.serialize());
+    return tid;
   }
 
-  private async sendCommand(code: number, args: number[] = []): Promise<void> {
-    const tid = await this.nextTransactionId();
-    const packet = MtpPacket.buildCommand(code, tid, args);
-    const serialized = packet.serialize();
-    await this.usbManager.sendBulk(serialized);
+  /**
+   * Aborta la transacción [tid] a mitad de la fase de datos: Cancel Request
+   * al dispositivo y luego clearHalt para descartar lo que quede en el pipe.
+   */
+  private async cancelTransaction(tid: number): Promise<void> {
+    await this.usbManager.cancelRequest(tid);
+    await this.usbManager.clearHalts();
   }
 
   private async receiveResponse(): Promise<MtpPacket> {
@@ -134,135 +162,145 @@ export class MtpClient {
     return MtpPacket.deserialize(finalBuffer.buffer);
   }
 
-  public async getDeviceInfo(): Promise<void> {
-    await this.sendCommand(MtpOperationCode.GetDeviceInfo);
+  public getDeviceInfo(): Promise<void> {
+    return this.exclusive(async () => {
+      await this.sendCommand(MtpOperationCode.GetDeviceInfo);
     
-    const dataPacket = await this.receiveResponse();
-    if (dataPacket.type === ContainerType.Response) {
-       console.log(`[MTP] GetDeviceInfo received immediate response (Code: 0x${dataPacket.code.toString(16)})`);
-       return;
-    }
+      const dataPacket = await this.receiveResponse();
+      if (dataPacket.type === ContainerType.Response) {
+         console.log(`[MTP] GetDeviceInfo received immediate response (Code: 0x${dataPacket.code.toString(16)})`);
+         return;
+      }
     
-    await this.receiveResponse(); // read final response
-    console.log('[MTP] GetDeviceInfo completed');
+      await this.receiveResponse(); // read final response
+      console.log('[MTP] GetDeviceInfo completed');
+    });
   }
 
-  public async openSession(): Promise<void> {
-    this.sessionId = 1; // Basic session ID
-    console.log('[MTP] Sending OpenSession...');
-    await this.sendCommand(MtpOperationCode.OpenSession, [this.sessionId]);
-    const response = await this.receiveResponse();
-    console.log('[MTP] OpenSession response:', response);
+  public openSession(): Promise<void> {
+    return this.exclusive(async () => {
+      this.sessionId = 1; // Basic session ID
+      console.log('[MTP] Sending OpenSession...');
+      await this.sendCommand(MtpOperationCode.OpenSession, [this.sessionId]);
+      const response = await this.receiveResponse();
+      console.log('[MTP] OpenSession response:', response);
     
-    if (response.code === 0x201E) {
-      console.log('[MTP] Session already open, proceeding normally.');
-    } else if (response.code !== 0x2001) {
-      console.warn(`[MTP] OpenSession unexpected code: 0x${response.code.toString(16)}`);
-    } else {
-      console.log('[MTP] OpenSession OK');
-    }
+      if (response.code === 0x201E) {
+        console.log('[MTP] Session already open, proceeding normally.');
+      } else if (response.code !== 0x2001) {
+        console.warn(`[MTP] OpenSession unexpected code: 0x${response.code.toString(16)}`);
+      } else {
+        console.log('[MTP] OpenSession OK');
+      }
+    });
   }
 
-  public async getStorageIDs(): Promise<number[]> {
-    console.log('[MTP] Sending GetStorageIDs...');
-    await this.sendCommand(MtpOperationCode.GetStorageIDs);
+  public getStorageIDs(): Promise<number[]> {
+    return this.exclusive(async () => {
+      console.log('[MTP] Sending GetStorageIDs...');
+      await this.sendCommand(MtpOperationCode.GetStorageIDs);
     
-    // Some devices might throw an immediate response if session is invalid.
-    const dataPacket = await this.receiveResponse();
-    console.log('[MTP] getStorageIDs first packet type:', dataPacket.type);
+      // Some devices might throw an immediate response if session is invalid.
+      const dataPacket = await this.receiveResponse();
+      console.log('[MTP] getStorageIDs first packet type:', dataPacket.type);
     
-    if (dataPacket.type === ContainerType.Response) {
-       console.error(`[MTP] Received Response instead of Data for GetStorageIDs! Code: 0x${dataPacket.code.toString(16)}`);
-       return [];
-    }
+      if (dataPacket.type === ContainerType.Response) {
+         console.error(`[MTP] Received Response instead of Data for GetStorageIDs! Code: 0x${dataPacket.code.toString(16)}`);
+         return [];
+      }
 
-    if (dataPacket.type !== ContainerType.Data) {
-      console.warn('[MTP] Expected Data packet for GetStorageIDs, got type:', dataPacket.type);
-    }
+      if (dataPacket.type !== ContainerType.Data) {
+        console.warn('[MTP] Expected Data packet for GetStorageIDs, got type:', dataPacket.type);
+      }
     
-    console.log('[MTP] Waiting for final Response for GetStorageIDs...');
-    await this.receiveResponse(); // read final response
+      console.log('[MTP] Waiting for final Response for GetStorageIDs...');
+      await this.receiveResponse(); // read final response
     
-    if (!dataPacket.payload || dataPacket.payload.byteLength === 0) {
-      console.warn('[MTP] Payload is empty for GetStorageIDs');
-      return [];
-    }
-
-    const view = new DataView(dataPacket.payload);
-    const { array } = parseMtpUInt32Array(view, 0);
-    console.log('[MTP] Parsed Storage IDs:', array);
-    return array;
-  }
-
-  public async getObjectHandles(storageId: number, parentFormat: number = 0, parentHandle: number = 0xFFFFFFFF): Promise<number[]> {
-     // parentFormat = 0 means don't filter by format
-     // parentHandle = 0xFFFFFFFF means root of the store, 0x00000000 means all objects in store
-     await this.sendCommand(MtpOperationCode.GetObjectHandles, [storageId, parentFormat, parentHandle]);
-     
-     const dataPacket = await this.receiveResponse();
-     if (dataPacket.type === ContainerType.Response) {
-        // Empty response
+      if (!dataPacket.payload || dataPacket.payload.byteLength === 0) {
+        console.warn('[MTP] Payload is empty for GetStorageIDs');
         return [];
-     }
-     
-     await this.receiveResponse(); // read final response
-     
-     const view = new DataView(dataPacket.payload);
-     const { array } = parseMtpUInt32Array(view, 0);
-     return array;
+      }
+
+      const view = new DataView(dataPacket.payload);
+      const { array } = parseMtpUInt32Array(view, 0);
+      console.log('[MTP] Parsed Storage IDs:', array);
+      return array;
+    });
   }
 
-  public async getObjectInfo(objectId: number): Promise<ObjectInfo | null> {
-     await this.sendCommand(MtpOperationCode.GetObjectInfo, [objectId]);
-     const dataPacket = await this.receiveResponse();
+  public getObjectHandles(storageId: number, parentFormat: number = 0, parentHandle: number = 0xFFFFFFFF): Promise<number[]> {
+    return this.exclusive(async () => {
+       // parentFormat = 0 means don't filter by format
+       // parentHandle = 0xFFFFFFFF means root of the store, 0x00000000 means all objects in store
+       await this.sendCommand(MtpOperationCode.GetObjectHandles, [storageId, parentFormat, parentHandle]);
      
-     if (dataPacket.type === ContainerType.Response) {
-       return null;
-     }
-
-     await this.receiveResponse();
-
-     const payload = dataPacket.payload;
-     if (payload.byteLength < 52) return null; // Minimum size for info
-
-     const view = new DataView(payload);
+       const dataPacket = await this.receiveResponse();
+       if (dataPacket.type === ContainerType.Response) {
+          // Empty response
+          return [];
+       }
      
-     let offset = 0;
-     const storageID = view.getUint32(offset, true); offset += 4;
-     const objectFormat = view.getUint16(offset, true); offset += 2;
-     const protectionStatus = view.getUint16(offset, true); offset += 2;
-     const objectCompressedSize = view.getUint32(offset, true); offset += 4;
-     const thumbFormat = view.getUint16(offset, true); offset += 2;
-     const thumbCompressedSize = view.getUint32(offset, true); offset += 4;
-     const thumbPixWidth = view.getUint32(offset, true); offset += 4;
-     const thumbPixHeight = view.getUint32(offset, true); offset += 4;
-     const imagePixWidth = view.getUint32(offset, true); offset += 4;
-     const imagePixHeight = view.getUint32(offset, true); offset += 4;
-     const imageBitDepth = view.getUint32(offset, true); offset += 4;
-     const parentObject = view.getUint32(offset, true); offset += 4;
-     const associationType = view.getUint16(offset, true); offset += 2;
-     const associationDesc = view.getUint32(offset, true); offset += 4;
-     const sequenceNumber = view.getUint32(offset, true); offset += 4;
+       await this.receiveResponse(); // read final response
+     
+       const view = new DataView(dataPacket.payload);
+       const { array } = parseMtpUInt32Array(view, 0);
+       return array;
+    });
+  }
 
-     const filenameResult = parseMtpString(view, offset);
-     offset = filenameResult.newOffset;
-     const filename = filenameResult.text;
+  public getObjectInfo(objectId: number): Promise<ObjectInfo | null> {
+    return this.exclusive(async () => {
+       await this.sendCommand(MtpOperationCode.GetObjectInfo, [objectId]);
+       const dataPacket = await this.receiveResponse();
+     
+       if (dataPacket.type === ContainerType.Response) {
+         return null;
+       }
 
-     const dateCreatedResult = parseMtpString(view, offset);
-     offset = dateCreatedResult.newOffset;
-     const dateCreated = dateCreatedResult.text;
+       await this.receiveResponse();
 
-     const dateModifiedResult = parseMtpString(view, offset);
-     offset = dateModifiedResult.newOffset;
-     const dateModified = dateModifiedResult.text;
+       const payload = dataPacket.payload;
+       if (payload.byteLength < 52) return null; // Minimum size for info
 
-     return {
-       storageID, objectFormat, protectionStatus, objectCompressedSize,
-       thumbFormat, thumbCompressedSize, thumbPixWidth, thumbPixHeight,
-       imagePixWidth, imagePixHeight, imageBitDepth, parentObject,
-       associationType, associationDesc, sequenceNumber, filename,
-       dateCreated, dateModified
-     };
+       const view = new DataView(payload);
+     
+       let offset = 0;
+       const storageID = view.getUint32(offset, true); offset += 4;
+       const objectFormat = view.getUint16(offset, true); offset += 2;
+       const protectionStatus = view.getUint16(offset, true); offset += 2;
+       const objectCompressedSize = view.getUint32(offset, true); offset += 4;
+       const thumbFormat = view.getUint16(offset, true); offset += 2;
+       const thumbCompressedSize = view.getUint32(offset, true); offset += 4;
+       const thumbPixWidth = view.getUint32(offset, true); offset += 4;
+       const thumbPixHeight = view.getUint32(offset, true); offset += 4;
+       const imagePixWidth = view.getUint32(offset, true); offset += 4;
+       const imagePixHeight = view.getUint32(offset, true); offset += 4;
+       const imageBitDepth = view.getUint32(offset, true); offset += 4;
+       const parentObject = view.getUint32(offset, true); offset += 4;
+       const associationType = view.getUint16(offset, true); offset += 2;
+       const associationDesc = view.getUint32(offset, true); offset += 4;
+       const sequenceNumber = view.getUint32(offset, true); offset += 4;
+
+       const filenameResult = parseMtpString(view, offset);
+       offset = filenameResult.newOffset;
+       const filename = filenameResult.text;
+
+       const dateCreatedResult = parseMtpString(view, offset);
+       offset = dateCreatedResult.newOffset;
+       const dateCreated = dateCreatedResult.text;
+
+       const dateModifiedResult = parseMtpString(view, offset);
+       offset = dateModifiedResult.newOffset;
+       const dateModified = dateModifiedResult.text;
+
+       return {
+         storageID, objectFormat, protectionStatus, objectCompressedSize,
+         thumbFormat, thumbCompressedSize, thumbPixWidth, thumbPixHeight,
+         imagePixWidth, imagePixHeight, imageBitDepth, parentObject,
+         associationType, associationDesc, sequenceNumber, filename,
+         dateCreated, dateModified
+       };
+    });
   }
 
   /**
@@ -274,104 +312,114 @@ export class MtpClient {
    *
    * Sin `onChunk` acumula los bloques en un array y devuelve un Blob (fallback
    * para navegadores sin File System Access API).
+   *
+   * Retorna null si el dispositivo responde con error en lugar de datos.
+   * Lanza si la transferencia queda incompleta o es abortada; en ese caso la
+   * transacción se cancela en el dispositivo para dejar el pipe limpio.
    */
-  public async getObject(
+  public getObject(
     objectId: number,
     onChunk?: (chunk: ArrayBuffer) => Promise<void>,
     signal?: AbortSignal,
     knownSize?: number,
   ): Promise<Blob | null> {
-    await this.sendCommand(MtpOperationCode.GetObject, [objectId]);
+    return this.exclusive(async () => {
+      if (signal?.aborted) throw abortError();
+      const tid = await this.sendCommand(MtpOperationCode.GetObject, [objectId]);
 
-    // Leer el primer paquete USB para ver el tipo de contenedor y el tamaño total.
-    // NO usar receiveResponse() genérico: para archivos grandes aloca un único
-    // ArrayBuffer del tamaño del archivo, lo que falla con RangeError.
-    const initial = await this.usbManager.receiveBulk(65536);
-    if (initial.byteLength < HEADER_LENGTH) return null;
+      // Leer el primer paquete USB para ver el tipo de contenedor y el tamaño total.
+      // NO usar receiveResponse() genérico: para archivos grandes aloca un único
+      // ArrayBuffer del tamaño del archivo, lo que falla con RangeError.
+      const initial = await this.usbManager.receiveBulk(CHUNK_SIZE);
+      if (initial.byteLength < HEADER_LENGTH) {
+        throw new Error(`Respuesta MTP inválida (${initial.byteLength} bytes)`);
+      }
 
-    const view = new DataView(initial);
-    const containerType = view.getUint16(4, true);
+      const view = new DataView(initial);
+      // El dispositivo devolvió un error en lugar de datos
+      if (view.getUint16(4, true) === ContainerType.Response) return null;
 
-    // El dispositivo devolvió un error en lugar de datos
-    if (containerType === ContainerType.Response) return null;
+      // Longitud del contenedor (32-bit). Por especificación MTP, 0xFFFFFFFF
+      // indica un objeto ≥ 4 GB: los datos siguen sin prefijo y el tamaño real
+      // hay que conocerlo por otro lado (knownSize, de GetObjectPropValue
+      // 64-bit). Si tampoco hay knownSize, se lee hasta el paquete corto que
+      // marca el fin de la fase de datos.
+      const reportedLength = view.getUint32(0, true);
+      let payloadSize: number | null;
+      if (reportedLength !== 0xFFFFFFFF) {
+        payloadSize = Math.max(0, reportedLength - HEADER_LENGTH);
+      } else {
+        payloadSize = knownSize && knownSize > 0 ? knownSize : null;
+      }
 
-    const reportedLength = view.getUint32(0, true); // longitud total del contenedor MTP (32-bit)
-    let payloadStart = HEADER_LENGTH;
-    let payloadSize: number;
+      const parts: ArrayBuffer[] = [];
+      const handleChunk = async (chunk: ArrayBuffer) => {
+        if (onChunk) await onChunk(chunk);
+        else parts.push(chunk);
+      };
 
-    if (reportedLength === 0xFFFFFFFF) {
-      // MTP extended-length sentinel: los primeros 8 bytes del payload contienen
-      // el tamaño real del contenedor como uint64 little-endian.
-      if (initial.byteLength < HEADER_LENGTH + 8) return null;
-      const lo = view.getUint32(HEADER_LENGTH, true);
-      const hi = view.getUint32(HEADER_LENGTH + 4, true);
-      const fullLength = lo + hi * 0x100000000;
-      payloadSize = fullLength - HEADER_LENGTH - 8;
-      payloadStart = HEADER_LENGTH + 8;
-    } else if (knownSize && knownSize > 0) {
-      // knownSize proviene de GetObjectPropValue (64-bit) y es autoritativo.
-      // El campo Length del header es uint32 y se desborda en archivos >4 GB,
-      // por lo que siempre preferimos knownSize cuando está disponible.
-      payloadSize = knownSize;
-    } else {
-      payloadSize = Math.max(0, reportedLength - HEADER_LENGTH);
-    }
+      try {
+        if (initial.byteLength > HEADER_LENGTH) {
+          await handleChunk(initial.slice(HEADER_LENGTH));
+        }
+        let received = initial.byteLength - HEADER_LENGTH;
+        let lastWanted = CHUNK_SIZE;
+        let lastLength = initial.byteLength;
 
-    const parts: ArrayBuffer[] = [];
+        while (payloadSize === null ? lastLength === lastWanted : received < payloadSize) {
+          if (signal?.aborted) throw abortError();
+          lastWanted = payloadSize === null ? CHUNK_SIZE : Math.min(payloadSize - received, CHUNK_SIZE);
+          const chunk = await this.usbManager.receiveBulk(lastWanted);
+          lastLength = chunk.byteLength;
+          if (chunk.byteLength === 0) break;
+          await handleChunk(chunk);
+          received += chunk.byteLength;
+        }
 
-    const handleChunk = async (chunk: ArrayBuffer) => {
-      if (onChunk) await onChunk(chunk);
-      else parts.push(chunk);
-    };
+        if (payloadSize !== null && received < payloadSize) {
+          throw new Error(`Transferencia incompleta: ${received} de ${payloadSize} bytes`);
+        }
+      } catch (e) {
+        await this.cancelTransaction(tid);
+        throw e;
+      }
 
-    // Primera parte: payload del primer paquete (sin el header, y sin los 8 bytes
-    // de extended-length si aplica)
-    if (initial.byteLength > payloadStart) {
-      await handleChunk(initial.slice(payloadStart));
-    }
-    let received = Math.max(0, initial.byteLength - payloadStart);
-
-    // Leer los paquetes restantes hasta completar payloadSize
-    while (received < payloadSize) {
-      if (signal?.aborted) throw new DOMException('Download cancelled', 'AbortError');
-      const chunk = await this.usbManager.receiveBulk(
-        Math.min(payloadSize - received, 65536)
-      );
-      if (chunk.byteLength === 0) break;
-      await handleChunk(chunk);
-      received += chunk.byteLength;
-    }
-
-    await this.receiveResponse(); // paquete de respuesta final (OK)
-    return onChunk ? null : new Blob(parts);
+      const response = await this.receiveResponse(); // paquete de respuesta final
+      if (response.code !== MtpResponseCode.OK) {
+        throw new Error(`GetObject falló: 0x${response.code.toString(16)}`);
+      }
+      return onChunk ? null : new Blob(parts);
+    });
   }
 
   /**
    * GetThumb (0x100A) — fetches the embedded JPEG thumbnail for an image object.
    * Returns null if the device doesn't support thumbnails or the object has none.
    */
-  public async getThumb(objectHandle: number): Promise<Blob | null> {
-    try {
-      await this.sendCommand(MtpOperationCode.GetThumb, [objectHandle]);
-      const dataPacket = await this.receiveResponse();
+  public getThumb(objectHandle: number): Promise<Blob | null> {
+    return this.exclusive(async () => {
+      try {
+        await this.sendCommand(MtpOperationCode.GetThumb, [objectHandle]);
+        const dataPacket = await this.receiveResponse();
 
-      if (dataPacket.type === ContainerType.Response) {
-        // Device returned a response directly — no thumbnail available
+        if (dataPacket.type === ContainerType.Response) {
+          // Device returned a response directly — no thumbnail available
+          return null;
+        }
+
+        // Read trailing response packet
+        await this.receiveResponse();
+
+        if (!dataPacket.payload || dataPacket.payload.byteLength === 0) {
+          return null;
+        }
+
+        return new Blob([dataPacket.payload], { type: 'image/jpeg' });
+      } catch (e) {
+        console.warn(`[MTP] GetThumb failed for handle ${objectHandle}:`, e);
         return null;
       }
-
-      // Read trailing response packet
-      await this.receiveResponse();
-
-      if (!dataPacket.payload || dataPacket.payload.byteLength === 0) {
-        return null;
-      }
-
-      return new Blob([dataPacket.payload], { type: 'image/jpeg' });
-    } catch (e) {
-      console.warn(`[MTP] GetThumb failed for handle ${objectHandle}:`, e);
-      return null;
-    }
+    });
   }
 
   /**
@@ -379,80 +427,85 @@ export class MtpClient {
    * For folders (Association), no subsequent SendObject is required per the MTP spec.
    * Returns the new folder's object handle.
    */
-  public async createFolder(name: string, parentId: number, storageId: number): Promise<number> {
+  public createFolder(name: string, parentId: number, storageId: number): Promise<number> {
     const nameBytes  = serializeMtpString(name);
-    const emptyStr   = serializeMtpString('');
+    return this.exclusive(async () => {
+      const emptyStr   = serializeMtpString('');
 
-    // ObjectInfo fixed fields: 52 bytes
-    // StorageID(4) ObjectFormat(2) Protection(2) Size(4) ThumbFmt(2) ThumbSize(4)
-    // ThumbW(4) ThumbH(4) ImgW(4) ImgH(4) Depth(4) Parent(4) AssocType(2)
-    // AssocDesc(4) SeqNum(4)  = 52 bytes
-    const fixedSize = 52;
-    const bufSize = fixedSize + nameBytes.byteLength + emptyStr.byteLength * 3;
-    const buf  = new ArrayBuffer(bufSize);
-    const view = new DataView(buf);
-    let off = 0;
+      // ObjectInfo fixed fields: 52 bytes
+      // StorageID(4) ObjectFormat(2) Protection(2) Size(4) ThumbFmt(2) ThumbSize(4)
+      // ThumbW(4) ThumbH(4) ImgW(4) ImgH(4) Depth(4) Parent(4) AssocType(2)
+      // AssocDesc(4) SeqNum(4)  = 52 bytes
+      const fixedSize = 52;
+      const bufSize = fixedSize + nameBytes.byteLength + emptyStr.byteLength * 3;
+      const buf  = new ArrayBuffer(bufSize);
+      const view = new DataView(buf);
+      let off = 0;
 
-    view.setUint32(off, storageId,  true); off += 4; // StorageID
-    view.setUint16(off, 0x3001,     true); off += 2; // ObjectFormat = Association (folder)
-    view.setUint16(off, 0,          true); off += 2; // ProtectionStatus
-    view.setUint32(off, 0,          true); off += 4; // ObjectCompressedSize
-    view.setUint16(off, 0,          true); off += 2; // ThumbFormat
-    view.setUint32(off, 0,          true); off += 4; // ThumbCompressedSize
-    view.setUint32(off, 0,          true); off += 4; // ThumbPixWidth
-    view.setUint32(off, 0,          true); off += 4; // ThumbPixHeight
-    view.setUint32(off, 0,          true); off += 4; // ImagePixWidth
-    view.setUint32(off, 0,          true); off += 4; // ImagePixHeight
-    view.setUint32(off, 0,          true); off += 4; // ImageBitDepth
-    view.setUint32(off, parentId,   true); off += 4; // ParentObject
-    view.setUint16(off, 0x0001,     true); off += 2; // AssociationType = GenericFolder
-    view.setUint32(off, 0,          true); off += 4; // AssociationDesc
-    view.setUint32(off, 0,          true); off += 4; // SequenceNumber
+      view.setUint32(off, storageId,  true); off += 4; // StorageID
+      view.setUint16(off, 0x3001,     true); off += 2; // ObjectFormat = Association (folder)
+      view.setUint16(off, 0,          true); off += 2; // ProtectionStatus
+      view.setUint32(off, 0,          true); off += 4; // ObjectCompressedSize
+      view.setUint16(off, 0,          true); off += 2; // ThumbFormat
+      view.setUint32(off, 0,          true); off += 4; // ThumbCompressedSize
+      view.setUint32(off, 0,          true); off += 4; // ThumbPixWidth
+      view.setUint32(off, 0,          true); off += 4; // ThumbPixHeight
+      view.setUint32(off, 0,          true); off += 4; // ImagePixWidth
+      view.setUint32(off, 0,          true); off += 4; // ImagePixHeight
+      view.setUint32(off, 0,          true); off += 4; // ImageBitDepth
+      view.setUint32(off, parentId,   true); off += 4; // ParentObject
+      view.setUint16(off, 0x0001,     true); off += 2; // AssociationType = GenericFolder
+      view.setUint32(off, 0,          true); off += 4; // AssociationDesc
+      view.setUint32(off, 0,          true); off += 4; // SequenceNumber
 
-    // Variable-length strings
-    new Uint8Array(buf, off).set(new Uint8Array(nameBytes)); off += nameBytes.byteLength;
-    new Uint8Array(buf, off).set(new Uint8Array(emptyStr));  off += emptyStr.byteLength; // DateCreated
-    new Uint8Array(buf, off).set(new Uint8Array(emptyStr));  off += emptyStr.byteLength; // DateModified
-    new Uint8Array(buf, off).set(new Uint8Array(emptyStr));                               // Keywords
+      // Variable-length strings
+      new Uint8Array(buf, off).set(new Uint8Array(nameBytes)); off += nameBytes.byteLength;
+      new Uint8Array(buf, off).set(new Uint8Array(emptyStr));  off += emptyStr.byteLength; // DateCreated
+      new Uint8Array(buf, off).set(new Uint8Array(emptyStr));  off += emptyStr.byteLength; // DateModified
+      new Uint8Array(buf, off).set(new Uint8Array(emptyStr));                               // Keywords
 
-    await this.sendCommand(MtpOperationCode.SendObjectInfo, [storageId, parentId]);
-    const tid        = this.transactionId;
-    const dataPacket = MtpPacket.buildData(MtpOperationCode.SendObjectInfo, tid, buf);
-    await this.usbManager.sendBulk(dataPacket.serialize());
+      const tid        = await this.sendCommand(MtpOperationCode.SendObjectInfo, [storageId, parentId]);
+      const dataPacket = MtpPacket.buildData(MtpOperationCode.SendObjectInfo, tid, buf);
+      await this.usbManager.sendBulk(dataPacket.serialize());
 
-    const response = await this.receiveResponse();
-    if (response.code !== MtpResponseCode.OK) {
-      throw new Error(`CreateFolder failed: 0x${response.code.toString(16)}`);
-    }
-    // Response params[0]=storageId, params[1]=parentHandle, params[2]=new objectHandle
-    const params = response.getResponseParams();
-    return params[2] ?? 0;
+      const response = await this.receiveResponse();
+      if (response.code !== MtpResponseCode.OK) {
+        throw new Error(`CreateFolder failed: 0x${response.code.toString(16)}`);
+      }
+      // Response params[0]=storageId, params[1]=parentHandle, params[2]=new objectHandle
+      const params = response.getResponseParams();
+      return params[2] ?? 0;
+    });
   }
 
   /**
    * DeleteObject (0x100B) — permanently deletes an object from the device.
    * For folders, most devices delete recursively.
    */
-  public async deleteObject(objectId: number): Promise<void> {
-    await this.sendCommand(MtpOperationCode.DeleteObject, [objectId, 0x0000]);
-    const response = await this.receiveResponse();
-    if (response.code !== MtpResponseCode.OK) {
-      throw new Error(`DeleteObject failed: 0x${response.code.toString(16)}`);
-    }
+  public deleteObject(objectId: number): Promise<void> {
+    return this.exclusive(async () => {
+      await this.sendCommand(MtpOperationCode.DeleteObject, [objectId, 0x0000]);
+      const response = await this.receiveResponse();
+      if (response.code !== MtpResponseCode.OK) {
+        throw new Error(`DeleteObject failed: 0x${response.code.toString(16)}`);
+      }
+    });
   }
 
   /**
    * MoveObject (0x1019) — moves an object to a different parent folder.
    * Returns the new object handle (may differ from the original on some devices).
    */
-  public async moveObject(objectId: number, storageId: number, newParentId: number): Promise<number> {
-    await this.sendCommand(MtpOperationCode.MoveObject, [objectId, storageId, newParentId]);
-    const response = await this.receiveResponse();
-    if (response.code !== MtpResponseCode.OK) {
-      throw new Error(`MoveObject failed: 0x${response.code.toString(16)}`);
-    }
-    const params = response.getResponseParams();
-    return params[0] ?? objectId;
+  public moveObject(objectId: number, storageId: number, newParentId: number): Promise<number> {
+    return this.exclusive(async () => {
+      await this.sendCommand(MtpOperationCode.MoveObject, [objectId, storageId, newParentId]);
+      const response = await this.receiveResponse();
+      if (response.code !== MtpResponseCode.OK) {
+        throw new Error(`MoveObject failed: 0x${response.code.toString(16)}`);
+      }
+      const params = response.getResponseParams();
+      return params[0] ?? objectId;
+    });
   }
 
   /**
@@ -464,56 +517,59 @@ export class MtpClient {
    * at 0x2000, so any code below that is treated as an intermediate packet and we
    * read one more response to get the actual result.
    */
-  public async renameObject(objectId: number, newName: string): Promise<void> {
-    await this.sendCommand(MtpOperationCode.SetObjectPropValue, [objectId, MTP_PROP_OBJECT_FILENAME]);
+  public renameObject(objectId: number, newName: string): Promise<void> {
     const payload = serializeMtpString(newName);
-    const tid = this.transactionId; // same TID used by sendCommand above
-    const dataPacket = MtpPacket.buildData(MtpOperationCode.SetObjectPropValue, tid, payload);
-    await this.usbManager.sendBulk(dataPacket.serialize());
+    return this.exclusive(async () => {
+      const tid = await this.sendCommand(MtpOperationCode.SetObjectPropValue, [objectId, MTP_PROP_OBJECT_FILENAME]);
+      const dataPacket = MtpPacket.buildData(MtpOperationCode.SetObjectPropValue, tid, payload);
+      await this.usbManager.sendBulk(dataPacket.serialize());
 
-    let response = await this.receiveResponse();
+      let response = await this.receiveResponse();
 
-    // If the code is below the valid MTP response range (0x2000+), it's a
-    // non-standard intermediate packet from OEM firmware — read the real response.
-    if (response.code < 0x2000) {
-      console.log(`[MTP] RenameObject: got intermediate code 0x${response.code.toString(16)}, reading final response...`);
-      try {
-        response = await this.receiveResponse();
-      } catch (e) {
-        // USB transfer timed out or failed — the intermediate was the only response.
-        // Fall through and report it as an error below.
-        console.warn('[MTP] RenameObject: failed to read second response after intermediate', e);
+      // If the code is below the valid MTP response range (0x2000+), it's a
+      // non-standard intermediate packet from OEM firmware — read the real response.
+      if (response.code < 0x2000) {
+        console.log(`[MTP] RenameObject: got intermediate code 0x${response.code.toString(16)}, reading final response...`);
+        try {
+          response = await this.receiveResponse();
+        } catch (e) {
+          // USB transfer timed out or failed — the intermediate was the only response.
+          // Fall through and report it as an error below.
+          console.warn('[MTP] RenameObject: failed to read second response after intermediate', e);
+        }
       }
-    }
 
-    if (response.code !== MtpResponseCode.OK) {
-      const knownErrors: Record<number, string> = {
-        [MtpResponseCode.OperationNotSupported]: 'El dispositivo no permite renombrar archivos',
-        [MtpResponseCode.AccessDenied]:          'Acceso denegado: el archivo está protegido',
-        [MtpResponseCode.ObjectWriteProtected]:  'El archivo está protegido contra escritura',
-        [MtpResponseCode.InvalidObjectHandle]:   'El archivo ya no existe en el dispositivo',
-        [MtpResponseCode.GeneralError]:          'Error general del dispositivo',
-      };
-      const msg = knownErrors[response.code]
-        ?? `El dispositivo rechazó el renombrado (código 0x${response.code.toString(16)})`;
-      throw new Error(msg);
-    }
+      if (response.code !== MtpResponseCode.OK) {
+        const knownErrors: Record<number, string> = {
+          [MtpResponseCode.OperationNotSupported]: 'El dispositivo no permite renombrar archivos',
+          [MtpResponseCode.AccessDenied]:          'Acceso denegado: el archivo está protegido',
+          [MtpResponseCode.ObjectWriteProtected]:  'El archivo está protegido contra escritura',
+          [MtpResponseCode.InvalidObjectHandle]:   'El archivo ya no existe en el dispositivo',
+          [MtpResponseCode.GeneralError]:          'Error general del dispositivo',
+        };
+        const msg = knownErrors[response.code]
+          ?? `El dispositivo rechazó el renombrado (código 0x${response.code.toString(16)})`;
+        throw new Error(msg);
+      }
+    });
   }
 
   /**
    * GetObjectPropValue (0x9803) — reads a single property of an object.
    * Returns the raw payload DataView; caller interprets the type.
    */
-  public async getObjectPropValue(objectId: number, propCode: number): Promise<DataView | null> {
-    try {
-      await this.sendCommand(MtpOperationCode.GetObjectPropValue, [objectId, propCode]);
-      const dataPacket = await this.receiveResponse();
-      if (dataPacket.type === ContainerType.Response) return null;
-      await this.receiveResponse();
-      return new DataView(dataPacket.payload);
-    } catch {
-      return null;
-    }
+  public getObjectPropValue(objectId: number, propCode: number): Promise<DataView | null> {
+    return this.exclusive(async () => {
+      try {
+        await this.sendCommand(MtpOperationCode.GetObjectPropValue, [objectId, propCode]);
+        const dataPacket = await this.receiveResponse();
+        if (dataPacket.type === ContainerType.Response) return null;
+        await this.receiveResponse();
+        return new DataView(dataPacket.payload);
+      } catch {
+        return null;
+      }
+    });
   }
 
   /**
