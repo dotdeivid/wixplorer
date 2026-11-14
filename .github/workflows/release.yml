@@ -134,60 +134,22 @@ jobs:
       - name: Instalar goversioninfo
         run: go install github.com/josephspurrier/goversioninfo/cmd/goversioninfo@v1.7.0
 
-      # El sufijo _windows_amd64 hace que Go enlace el .syso solo para ese
-      # target; el build de macOS lo ignora sin tener que borrarlo.
-      # -64: objeto COFF de amd64 (sin el flag sale de 386 y el link falla).
-      - name: Generar resource_windows_amd64.syso (metadatos + ícono Windows)
-        run: |
-          ~/go/bin/goversioninfo -64 \
-            -icon="packaging/icon.ico" \
-            -o="resource_windows_amd64.syso" \
-            "packaging/versioninfo.json"
-
-      # Se compila el paquete (.) y no main.go: con una lista de archivos,
-      # Go ignora los .syso del directorio y el .exe sale sin ícono.
-      - name: Build Windows .exe
-        run: |
-          mkdir -p ../dist_bin
-          GOOS=windows GOARCH=amd64 go build \
-            -ldflags="-s -w -H windowsgui" \
-            -o ../dist_bin/WiXplorer.exe .
-
-      - name: Build macOS Universal (arm64 + amd64)
-        run: |
-          GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o ../dist_bin/WiXplorer_arm64 .
-          GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o ../dist_bin/WiXplorer_amd64 .
-          lipo -create -output ../dist_bin/WiXplorer_mac \
-            ../dist_bin/WiXplorer_arm64 \
-            ../dist_bin/WiXplorer_amd64
-          rm ../dist_bin/WiXplorer_arm64 ../dist_bin/WiXplorer_amd64
-
-      - name: Armar WiXplorer.app
-        run: |
-          APP="../dist_bin/WiXplorer.app"
-          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
-          cp ../dist_bin/WiXplorer_mac "$APP/Contents/MacOS/WiXplorer"
-          chmod +x "$APP/Contents/MacOS/WiXplorer"
-          cp packaging/Info.plist  "$APP/Contents/Info.plist"
-          cp packaging/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
-          # Firma ad-hoc (evita advertencias de Gatekeeper en Mac sin notarización)
-          codesign --deep --force --sign - "$APP" 2>/dev/null || true
-
-      - name: Empaquetar macOS (.zip preserva permisos de ejecución)
-        run: |
-          cd ../dist_bin
-          zip -r --symlinks WiXplorer_mac.zip WiXplorer.app
+      # Mismo script que el build local (make desktop): genera el .syso de
+      # Windows, compila macOS Universal + .exe, arma y firma el .app y los ZIP.
+      # La web ya viene compilada del job build-web en launcher/dist.
+      - name: Compilar launcher (.app + .exe)
+        run: SKIP_WEB_BUILD=1 bash scripts/build.sh
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: macos-zip
-          path: dist_bin/WiXplorer_mac.zip
+          path: launcher/dist_bin/WiXplorer_mac.zip
           retention-days: 1
 
       - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: windows-exe
-          path: dist_bin/WiXplorer.exe
+          path: launcher/dist_bin/WiXplorer.exe
           retention-days: 1
 
   # ────────────────────────────────────────────────────────────────────────────

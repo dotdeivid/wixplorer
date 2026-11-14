@@ -90,18 +90,18 @@ wixplorer/
 │   └── dist/             # Build (generado por Vite)
 ├── launcher/             # Launcher de escritorio (Go) para el modo USB
 │   ├── main.go           # Sirve la web en localhost y abre el navegador
+│   ├── packaging/        # Info.plist, íconos, versioninfo.json, LEEME.txt
+│   ├── scripts/build.sh  # web → .app + .exe + ZIP (lo usan `make desktop` y release.yml)
 │   ├── dist/             # Copia de web/dist para go:embed (generada)
-│   └── packaging/        # Info.plist, íconos, versioninfo.json, LEEME.txt
+│   └── dist_bin/         # Binarios de distribución (generados)
 ├── mobile/               # App Flutter (servidor HTTP + UI de control)
 │   ├── lib/
 │   │   ├── screens/      # HomeScreen
 │   │   ├── widgets/      # MainButton, StatusCard, PulseRing
 │   │   └── services/     # ServerService, FileService, AuthService…
-│   └── assets/www/       # Copia de web/dist (generada por build_mobile_web.sh)
-├── scripts/
-│   ├── build_desktop.sh    # web → launcher → .app + .exe en dist_bin/
-│   └── build_mobile_web.sh # web → mobile/assets/www/
-├── docs/                 # Guía de desarrollo
+│   ├── scripts/build_web_assets.sh  # web → mobile/assets/www/
+│   └── assets/www/       # Copia de web/dist (generada)
+├── docs/                 # Guía de desarrollo y planes de trabajo
 └── Makefile              # Atajos para todas las tareas (`make help`)
 ```
 
@@ -143,10 +143,10 @@ make launcher        # compila la web, la copia a launcher/dist y corre `go run 
 make test-launcher   # go vet + go test (endpoint /quit)
 
 # Binarios de distribución (.app + .exe)
-make desktop         # = bash scripts/build_desktop.sh
+make desktop         # = bash launcher/scripts/build.sh
 ```
 
-Los binarios quedan en `dist_bin/`.
+Los binarios quedan en `launcher/dist_bin/`.
 
 ### App móvil — modo WiFi (Flutter) — `mobile/`
 

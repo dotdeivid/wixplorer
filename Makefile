@@ -32,12 +32,12 @@ launcher: launcher-web ## Corre el launcher en local (abre el navegador)
 test-launcher: launcher-web ## go vet + go test del launcher
 	cd launcher && go vet . && go test .
 
-desktop: ## Binarios de distribución (.app + .exe) en dist_bin/
-	bash scripts/build_desktop.sh
+desktop: ## Binarios de distribución (.app + .exe) en launcher/dist_bin/
+	bash launcher/scripts/build.sh
 
 # ── App móvil (Flutter) ─────────────────────────────────────────────────────
 mobile-assets: ## Compila la web y la copia a mobile/assets/www
-	bash scripts/build_mobile_web.sh
+	bash mobile/scripts/build_web_assets.sh
 
 mobile-test: ## flutter analyze + flutter test
 	cd mobile && flutter analyze && flutter test
@@ -49,4 +49,4 @@ apk: mobile-assets ## APK de release con la web actual
 check: lint test test-launcher mobile-test ## Todos los checks (lo mismo que corre CI)
 
 clean: ## Borra los builds generados
-	rm -rf web/dist launcher/dist dist_bin mobile/assets/www
+	rm -rf web/dist launcher/dist launcher/dist_bin mobile/assets/www

@@ -1,11 +1,12 @@
 #!/bin/bash
 # Compila la web y la copia como assets embebidos en la app Flutter.
-# Uso: ./scripts/build_mobile_web.sh
+# Uso: mobile/scripts/build_web_assets.sh   (o `make mobile-assets` desde la raíz)
 set -e
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+MOBILE_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$MOBILE_DIR/.." && pwd)"
 WEB_DIR="$ROOT_DIR/web"
-ASSETS_WEB="$ROOT_DIR/mobile/assets/www"
+ASSETS_WEB="$MOBILE_DIR/assets/www"
 
 echo "==> 1/2  Compilando la web (web/)..."
 cd "$WEB_DIR"

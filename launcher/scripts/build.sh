@@ -1,25 +1,38 @@
 #!/bin/bash
 # Compila el launcher de escritorio (Go) → WiXplorer.app (macOS Universal) y
-# WiXplorer.exe (Windows), con la web embebida.
-# Uso: ./scripts/build_desktop.sh
+# WiXplorer.exe (Windows), con la web embebida. Requiere macOS (lipo, codesign)
+# y goversioninfo en ~/go/bin.
+#
+# Uso: launcher/scripts/build.sh   (o `make desktop` desde la raíz)
+#
+# SKIP_WEB_BUILD=1 usa la web que ya está en launcher/dist en lugar de
+# compilarla (lo usa release.yml, que la recibe compilada de otro job).
 set -e
 
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+LAUNCHER_DIR="$(cd "$(dirname "$0")/.." && pwd)"
+ROOT_DIR="$(cd "$LAUNCHER_DIR/.." && pwd)"
 WEB_DIR="$ROOT_DIR/web"
-LAUNCHER_DIR="$ROOT_DIR/launcher"
 PACKAGING="$LAUNCHER_DIR/packaging"
-OUT="$ROOT_DIR/dist_bin"
+OUT="$LAUNCHER_DIR/dist_bin"
 
-echo "==> 1/6  Limpiando dist_bin/..."
+echo "==> 1/6  Limpiando launcher/dist_bin/..."
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-echo "==> 2/6  Compilando la web y copiándola al launcher..."
-cd "$WEB_DIR"
-npm run build
-# go:embed no puede leer fuera del paquete: la web va a launcher/dist
-rm -rf "$LAUNCHER_DIR/dist"
-cp -r "$WEB_DIR/dist" "$LAUNCHER_DIR/dist"
+if [ "${SKIP_WEB_BUILD:-}" = "1" ]; then
+  echo "==> 2/6  Usando la web ya compilada en launcher/dist..."
+  if [ ! -f "$LAUNCHER_DIR/dist/index.html" ]; then
+    echo "Error: launcher/dist/index.html no existe (SKIP_WEB_BUILD=1)." >&2
+    exit 1
+  fi
+else
+  echo "==> 2/6  Compilando la web y copiándola al launcher..."
+  cd "$WEB_DIR"
+  npm run build
+  # go:embed no puede leer fuera del paquete: la web va a launcher/dist
+  rm -rf "$LAUNCHER_DIR/dist"
+  cp -r "$WEB_DIR/dist" "$LAUNCHER_DIR/dist"
+fi
 
 echo "==> 3/6  Generando recursos Windows (ícono + metadata)..."
 # El sufijo _windows_amd64 hace que Go enlace el .syso solo en ese target,
@@ -55,7 +68,7 @@ cp "$PACKAGING/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 codesign --deep --force --sign - "$APP" 2>/dev/null || true
 
 # ZIP para distribución (preserva permisos de ejecución)
-cd "$OUT" && zip -r --symlinks WiXplorer_mac.zip WiXplorer.app && cd "$ROOT_DIR"
+cd "$OUT" && zip -r --symlinks WiXplorer_mac.zip WiXplorer.app && cd "$LAUNCHER_DIR"
 
 # Paquete para distribución (pendrive / descarga)
 PKG="$OUT/WiXplorer_v1.0"
@@ -72,9 +85,9 @@ cp "$OUT/WiXplorer.exe" "$PKG/Windows/WiXplorer.exe"
 cp "$PACKAGING/LEEME.txt" "$PKG/LEEME.txt"
 
 # ZIP final listo para enviar / copiar al pendrive
-cd "$OUT" && zip -r --symlinks WiXplorer_v1.0.zip WiXplorer_v1.0 && cd "$ROOT_DIR"
+cd "$OUT" && zip -r --symlinks WiXplorer_v1.0.zip WiXplorer_v1.0 && cd "$LAUNCHER_DIR"
 rm -rf "$PKG"
 
 echo ""
-echo "✓ Listo. Archivos generados en dist_bin/"
+echo "✓ Listo. Archivos generados en launcher/dist_bin/"
 ls -lh "$OUT/"

@@ -11,10 +11,9 @@ wixplorer/
   web/                  ← App React (UI web)
   launcher/             ← Launcher Go (ejecutable de escritorio)
     packaging/          ← Info.plist, íconos, versioninfo.json, LEEME.txt
+    scripts/build.sh    ← Build completo para Mac + Windows → launcher/dist_bin/
   mobile/               ← App Flutter (servidor Android)
-  scripts/
-    build_desktop.sh    ← Build completo para Mac + Windows
-    build_mobile_web.sh ← Build React → assets Flutter
+    scripts/build_web_assets.sh ← Build React → assets Flutter
   Makefile              ← Atajos para todo (`make help`)
 ```
 
@@ -89,19 +88,19 @@ Hot reload con `r`, reinicio con `R`. La URL aparece en pantalla.
 ### → Producto de escritorio (Mac / Windows)
 
 ```bash
-./scripts/build_desktop.sh
+make desktop
 ```
 
-Compila React, genera los binarios y arma `dist_bin/WiXplorer_v1.0.zip`.
+Compila React, genera los binarios y arma `launcher/dist_bin/WiXplorer_v1.0.zip`.
 
 ### → App Android (modo WiFi con web embebida)
 
 ```bash
-./scripts/build_mobile_web.sh
+make mobile-assets
 cd mobile && flutter build apk --release
 ```
 
-`build_mobile_web.sh` compila React y copia el resultado a `mobile/assets/www/`. Luego Flutter embebe esos assets en el APK.
+`make mobile-assets` compila React y copia el resultado a `mobile/assets/www/`. Luego Flutter embebe esos assets en el APK.
 
 ---
 
@@ -126,7 +125,7 @@ cd mobile && flutter install
 ## Escenario 3 — Cambié ambos (React + Flutter)
 
 ```bash
-./scripts/build_mobile_web.sh          # 1. Compila React y lo copia a Flutter
+make mobile-assets          # 1. Compila React y lo copia a Flutter
 cd mobile && flutter build apk --release   # 2. Genera el APK con la web nueva
 ```
 
@@ -135,7 +134,7 @@ cd mobile && flutter build apk --release   # 2. Genera el APK con la web nueva
 ## Escenario 4 — Cambié el launcher Go (`launcher/main.go`)
 
 ```bash
-./scripts/build_desktop.sh
+make desktop
 ```
 
 El script siempre recompila React y luego el Go. Si React no cambió el build es rápido (Vite hace cache).
@@ -146,9 +145,9 @@ El script siempre recompila React y luego el Go. Si React no cambió el build es
 
 | Producto | Ruta | Cómo se genera |
 |---------|------|----------------|
-| ZIP para pendrive (Mac + Win) | `dist_bin/WiXplorer_v1.0.zip` | `./scripts/build_desktop.sh` |
-| `.app` macOS | `dist_bin/WiXplorer.app` | `./scripts/build_desktop.sh` |
-| `.exe` Windows | `dist_bin/WiXplorer.exe` | `./scripts/build_desktop.sh` |
+| ZIP para pendrive (Mac + Win) | `launcher/dist_bin/WiXplorer_v1.0.zip` | `make desktop` |
+| `.app` macOS | `launcher/dist_bin/WiXplorer.app` | `make desktop` |
+| `.exe` Windows | `launcher/dist_bin/WiXplorer.exe` | `make desktop` |
 | APK Android | `mobile/build/app/outputs/flutter-apk/app-release.apk` | `cd mobile && flutter build apk --release` |
 
 ---
@@ -159,18 +158,18 @@ El script siempre recompila React y luego el Go. Si React no cambió el build es
 
 ```bash
 # Opción A — desde el ZIP de distribución
-unzip dist_bin/WiXplorer_v1.0.zip
+unzip launcher/dist_bin/WiXplorer_v1.0.zip
 # Abrir Mac/WiXplorer.app con clic derecho → Abrir (solo la primera vez)
 
 # Opción B — probar el .app directamente
-open dist_bin/WiXplorer.app
+open launcher/dist_bin/WiXplorer.app
 ```
 
 Si macOS bloquea la app (Gatekeeper): **clic derecho → Abrir → Abrir**.
 
 ### Windows
 
-Copiar `dist_bin/WiXplorer.exe` a la PC destino y hacer doble clic.
+Copiar `launcher/dist_bin/WiXplorer.exe` a la PC destino y hacer doble clic.
 
 Si aparece SmartScreen: **"Más información" → "Ejecutar de todas formas"** (solo la primera vez).
 
@@ -199,8 +198,8 @@ Desde la raíz, `make help` lista todos los atajos.
 | `make lint` / `make test` | ESLint y tests unitarios de la web (vitest) |
 | `make launcher` | Copia `web/dist` a `launcher/dist` y corre el launcher (`go run .`) |
 | `make test-launcher` | `go vet` + `go test` del launcher |
-| `make mobile-assets` (`./scripts/build_mobile_web.sh`) | Compila React y copia a `mobile/assets/www/` |
-| `make desktop` (`./scripts/build_desktop.sh`) | Build completo: React + Go Mac/Win + `.app` + ZIP |
+| `make mobile-assets` (`mobile/scripts/build_web_assets.sh`) | Compila React y copia a `mobile/assets/www/` |
+| `make desktop` (`launcher/scripts/build.sh`) | Build completo: React + Go Mac/Win + `.app` + ZIP |
 | `make mobile-test` | `flutter analyze` + `flutter test` |
 | `make apk` | Web actual + APK de release |
 | `make check` | Todos los checks (lo mismo que CI) |
@@ -213,7 +212,7 @@ Desde la raíz, `make help` lista todos los atajos.
 
 - [ ] `make check` sin errores (lint, tests web, launcher y Flutter)
 - [ ] `make build` sin errores TypeScript
-- [ ] `make desktop` genera `dist_bin/WiXplorer_v1.0.zip`
+- [ ] `make desktop` genera `launcher/dist_bin/WiXplorer_v1.0.zip`
 - [ ] Probar el `.app` localmente: doble clic → se abre el browser
 - [ ] `make apk`
 - [ ] Instalar el APK en el teléfono y probar el flujo WiFi completo (iniciar servidor → URL → PIN → archivos)
