@@ -289,9 +289,7 @@ export class MtpClient {
        offset = dateCreatedResult.newOffset;
        const dateCreated = dateCreatedResult.text;
 
-       const dateModifiedResult = parseMtpString(view, offset);
-       offset = dateModifiedResult.newOffset;
-       const dateModified = dateModifiedResult.text;
+       const dateModified = parseMtpString(view, offset).text;
 
        return {
          storageID, objectFormat, protectionStatus, objectCompressedSize,

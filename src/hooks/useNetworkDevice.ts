@@ -190,7 +190,9 @@ export function useNetworkDevice(): NetworkDeviceState {
 
   // Ref para health check sin stale closure
   const connectedRef = useRef<NetworkDevice | null>(null);
-  connectedRef.current = connectedDevice;
+  useEffect(() => {
+    connectedRef.current = connectedDevice;
+  }, [connectedDevice]);
 
   // True mientras hay una descarga en curso — el health check no desconecta
   // aunque el ping falle (el servidor está ocupado sirviendo el archivo).
@@ -222,32 +224,6 @@ export function useNetworkDevice(): NetworkDeviceState {
       });
   }, []);
 
-  // ── Health check — solo verifica el dispositivo conectado ────────────────
-  useEffect(() => {
-    const id = setInterval(async () => {
-      const connected = connectedRef.current;
-      if (!connected) return;
-
-      const result = await pingDevice(connected);
-      if (result.alive) {
-        failCountRef.current.delete(connected.ip);
-      } else {
-        const gracePeriod = result.wasTimeout ? MAX_CONSECUTIVE_FAILURES : 1;
-        const fails = (failCountRef.current.get(connected.ip) ?? 0) + 1;
-        failCountRef.current.set(connected.ip, fails);
-        if (fails >= gracePeriod && !isDownloadingRef.current) {
-          failCountRef.current.delete(connected.ip);
-          toast.warning(`Se perdió la conexión con ${connected.deviceName || connected.ip}`, {
-            description: 'El servidor del teléfono no responde. Volvé a conectarte cuando esté activo.',
-          });
-          resetConnection();
-        }
-      }
-    }, HEALTH_INTERVAL_MS);
-
-    return () => clearInterval(id);
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
-
   // ── Internal helpers ──────────────────────────────────────────────────────
 
   const resetConnection = useCallback((fromExpiry?: boolean) => {
@@ -272,6 +248,32 @@ export function useNetworkDevice(): NetworkDeviceState {
     rootNodeRef.current = null;
     client.current = null;
   }, []);
+
+  // ── Health check — solo verifica el dispositivo conectado ────────────────
+  useEffect(() => {
+    const id = setInterval(async () => {
+      const connected = connectedRef.current;
+      if (!connected) return;
+
+      const result = await pingDevice(connected);
+      if (result.alive) {
+        failCountRef.current.delete(connected.ip);
+      } else {
+        const gracePeriod = result.wasTimeout ? MAX_CONSECUTIVE_FAILURES : 1;
+        const fails = (failCountRef.current.get(connected.ip) ?? 0) + 1;
+        failCountRef.current.set(connected.ip, fails);
+        if (fails >= gracePeriod && !isDownloadingRef.current) {
+          failCountRef.current.delete(connected.ip);
+          toast.warning(`Se perdió la conexión con ${connected.deviceName || connected.ip}`, {
+            description: 'El servidor del teléfono no responde. Volvé a conectarte cuando esté activo.',
+          });
+          resetConnection();
+        }
+      }
+    }, HEALTH_INTERVAL_MS);
+
+    return () => clearInterval(id);
+  }, [resetConnection]);
 
   const clearExpiredDevice = useCallback(() => {
     setLastExpiredDevice(null);

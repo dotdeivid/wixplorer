@@ -1,4 +1,4 @@
-import React, { useState, useCallback, useRef, useEffect } from 'react';
+import React, { useState, useCallback, useRef, useEffect, useLayoutEffect } from 'react';
 import styles from './AppLayout.module.css';
 import Sidebar from '../sidebar/Sidebar';
 import Toolbar from '../toolbar/Toolbar';
@@ -455,7 +455,11 @@ const AppLayout: React.FC = () => {
     });
   }
 
-  visibleFilesRef.current = visibleFiles;
+  // Los handlers leen la lista visible vía ref; se sincroniza después del
+  // render (escribir refs durante el render rompe las reglas de React).
+  useLayoutEffect(() => {
+    visibleFilesRef.current = visibleFiles;
+  });
 
   const handleQuit = useCallback(() => {
     setQuitting(true);
