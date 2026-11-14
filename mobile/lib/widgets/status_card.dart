@@ -1,5 +1,6 @@
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import '../theme/app_theme.dart';
 import '../models/server_status.dart';
 
@@ -69,6 +70,19 @@ class StatusCard extends StatelessWidget {
                     const Icon(Icons.copy_rounded, size: 14, color: AppColors.textSecondary),
                   ],
                 ),
+              ),
+            ),
+
+            const SizedBox(height: 8),
+
+            // QR para abrir la URL desde otro dispositivo (tablet, otra PC)
+            TextButton.icon(
+              onPressed: () => _showQr(context, 'http://$ip:$port'),
+              icon: const Icon(Icons.qr_code_2_rounded, size: 16),
+              label: const Text('Mostrar QR'),
+              style: TextButton.styleFrom(
+                foregroundColor: AppColors.textSecondary,
+                textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500),
               ),
             ),
 
@@ -142,6 +156,42 @@ class StatusCard extends StatelessWidget {
       ),
     );
   }
+}
+
+void _showQr(BuildContext context, String url) {
+  showDialog<void>(
+    context: context,
+    builder: (context) => AlertDialog(
+      backgroundColor: AppColors.bgCard,
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(12),
+            color: Colors.white, // los lectores necesitan fondo claro
+            child: QrImageView(data: url, size: 220),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            url,
+            style: const TextStyle(
+              color: AppColors.textPrimary,
+              fontFamily: 'monospace',
+              fontSize: 14,
+            ),
+          ),
+          const SizedBox(height: 4),
+          const Text(
+            'Escaneá con la cámara y después ingresá el PIN',
+            style: TextStyle(color: AppColors.textSecondary, fontSize: 12),
+          ),
+        ],
+      ),
+      actions: [
+        TextButton(onPressed: () => Navigator.of(context).pop(), child: const Text('Cerrar')),
+      ],
+    ),
+  );
 }
 
 class _PinDigit extends StatelessWidget {

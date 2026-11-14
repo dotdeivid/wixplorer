@@ -97,6 +97,10 @@ const VirtualFileList = memo<{
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
 
+  // useVirtualizer devuelve funciones que React Compiler no puede memoizar,
+  // así que el compilador se saltea este componente. Es esperado y está
+  // documentado por TanStack; no afecta el comportamiento.
+  // eslint-disable-next-line react-hooks/incompatible-library
   const virtualizer = useVirtualizer({
     count: files.length,
     getScrollElement: () => scrollRef.current,
@@ -157,8 +161,15 @@ const GalleryPreview: React.FC<{
   getDirectUrl?: (file: FileItem) => string | null;
   onStreamVideo?: StreamVideoFn;
 }> = ({ file, onFetchBlob, getDirectUrl, onStreamVideo }) => {
-  const [mediaUrl, setMediaUrl] = React.useState<string | null>(null);
-  const [loading, setLoading] = React.useState(false);
+  // Se monta uno nuevo por archivo (key = file.id): el estado arranca limpio.
+  const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
+  const isMedia = !file.isFolder && GALLERY_MEDIA_EXTS.has(ext);
+  // URL directa disponible (modo red) — sin descarga previa
+  const directUrl = isMedia && getDirectUrl ? getDirectUrl(file) : null;
+  const canStream = isMedia && !directUrl && !!onStreamVideo && ['mp4','webm','mov','m4v','3gp'].includes(ext);
+  const [fetchedUrl, setFetchedUrl] = React.useState<string | null>(null);
+  const mediaUrl = directUrl ?? fetchedUrl;
+  const [loading, setLoading] = React.useState(() => isMedia && !directUrl && !canStream);
   const [isPlaying, setIsPlaying] = React.useState(false);
   const [videoTime, setVideoTime] = React.useState(0);
   const [videoDuration, setVideoDuration] = React.useState(0);
@@ -189,46 +200,33 @@ const GalleryPreview: React.FC<{
   };
 
   React.useEffect(() => {
-    if (blobUrlRef.current) { URL.revokeObjectURL(blobUrlRef.current); blobUrlRef.current = null; }
-    if (streamCleanupRef.current) { streamCleanupRef.current(); streamCleanupRef.current = null; }
-    setMediaUrl(null);
-    setIsPlaying(false);
-    setVideoTime(0);
-    setVideoDuration(0);
-    if (file.isFolder) return;
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
-    if (!GALLERY_MEDIA_EXTS.has(ext)) return;
-
+    if (!isMedia || directUrl) return;
     const abortCtrl = new AbortController();
 
-    // URL directa disponible (modo red) — sin descarga previa
-    if (getDirectUrl) {
-      const url = getDirectUrl(file);
-      if (url) { setMediaUrl(url); return () => { abortCtrl.abort(); }; }
-    }
-
     // Streaming MSE para video MTP — inicia reproducción sin esperar descarga completa
-    if (onStreamVideo && ['mp4','webm','mov','m4v','3gp'].includes(ext)) {
-      const stream = onStreamVideo(file, abortCtrl.signal, () => videoRef.current?.currentTime ?? 0);
+    if (canStream) {
+      const stream = onStreamVideo!(file, abortCtrl.signal, () => videoRef.current?.currentTime ?? 0);
       if (stream) {
         streamCleanupRef.current = stream.cleanup;
-        setMediaUrl(stream.url);
+        setFetchedUrl(stream.url);
         return () => { abortCtrl.abort(); };
       }
     }
 
     // Fallback: descarga blob completo (modo USB/MTP para imágenes o sin MSE)
-    let cancelled = false;
-    setLoading(true);
     onFetchBlob(file, { signal: abortCtrl.signal }).then(blob => {
-      if (cancelled || !blob) { setLoading(false); return; }
-      const url = URL.createObjectURL(blob);
-      blobUrlRef.current = url;
-      setMediaUrl(url);
+      if (abortCtrl.signal.aborted) return;
+      if (blob) {
+        const url = URL.createObjectURL(blob);
+        blobUrlRef.current = url;
+        setFetchedUrl(url);
+      }
       setLoading(false);
-    }).catch(() => { if (!cancelled) setLoading(false); });
-    return () => { cancelled = true; abortCtrl.abort(); };
-  }, [file.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    }).catch(() => { if (!abortCtrl.signal.aborted) setLoading(false); });
+    return () => { abortCtrl.abort(); };
+    // Solo al montar: un archivo distinto monta otro GalleryPreview (key).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   React.useEffect(() => () => {
     if (blobUrlRef.current) URL.revokeObjectURL(blobUrlRef.current);
@@ -243,7 +241,6 @@ const GalleryPreview: React.FC<{
   );
 
   if (mediaUrl) {
-    const ext = file.name.split('.').pop()?.toLowerCase() ?? '';
     if (['mp4','webm','mov'].includes(ext)) {
       const progress = videoDuration > 0 ? (videoTime / videoDuration) * 100 : 0;
       return (
@@ -551,7 +548,7 @@ const FileExplorer: React.FC<FileExplorerProps> = ({
         <div className={styles.galleryPreviewArea}>
           {primarySelected
             ? onFetchBlob || getDirectUrl
-              ? <GalleryPreview file={primarySelected} onFetchBlob={onFetchBlob ?? (() => Promise.resolve(null))} getDirectUrl={getDirectUrl} onStreamVideo={onStreamVideo} />
+              ? <GalleryPreview key={primarySelected.id} file={primarySelected} onFetchBlob={onFetchBlob ?? (() => Promise.resolve(null))} getDirectUrl={getDirectUrl} onStreamVideo={onStreamVideo} />
               : (
                 <div className={styles.galleryPreviewContent}>
                   <div style={{ fontSize: 96 }}>{primarySelected.isFolder ? <FolderIcon /> : getFileEmoji(primarySelected.name)}</div>

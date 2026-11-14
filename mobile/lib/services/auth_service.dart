@@ -1,6 +1,8 @@
 import 'dart:math';
 import 'package:uuid/uuid.dart';
 
+import 'http_security.dart';
+
 /// Intentos fallidos de un cliente (IP) dentro de la ventana actual.
 class _Attempts {
   int failures = 0;
@@ -71,7 +73,7 @@ class AuthService {
     if (isBlockedFor(client)) return null;
     if (_pin == null || _token == null) return null;
 
-    if (pin == _pin) {
+    if (constantTimeEquals(pin, _pin!)) {
       _attempts.remove(client);
       return _token;
     }
@@ -82,8 +84,9 @@ class AuthService {
 
   /// Valida el Bearer token en cada request protegido.
   bool validateToken(String token) {
-    if (_token == null) return false;
-    return token == _token;
+    final current = _token;
+    if (current == null) return false;
+    return constantTimeEquals(token, current);
   }
 
   void _registerFailure(String client) {

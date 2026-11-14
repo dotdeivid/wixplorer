@@ -5,6 +5,7 @@ import { USBManager } from '../services/usb/USBManager';
 import { ThumbCache } from '../services/cache/ThumbCache';
 import { clearLruCache } from './useThumbnail';
 import { errorMessage, errorName } from '../utils/errors';
+import { debug } from '../utils/debug';
 
 export interface FileItem {
   id: number;
@@ -117,7 +118,7 @@ export function useMTPDevice() {
   }, []);
 
   useEffect(() => {
-    scanDevices();
+    void USBManager.listGrantedDevices().then(setAvailableDevices);
 
     // Listen for new USB devices being plugged in.
     // Retry after delays: switching from charging→MTP causes a USB re-enumeration
@@ -215,13 +216,13 @@ export function useMTPDevice() {
     let storages = await client.getStorageIDs();
     let retries = 5;
     while (storages.length === 0 && retries > 0) {
-      console.log(`[useMTPDevice] Storages empty, retrying... (${retries} left)`);
+      debug(`[useMTPDevice] Storages empty, retrying... (${retries} left)`);
       await new Promise(r => setTimeout(r, 1000));
       storages = await client.getStorageIDs();
       retries--;
     }
 
-    console.log('[useMTPDevice] Final storages:', storages);
+    debug('[useMTPDevice] Final storages:', storages);
 
     if (storages.length > 0) {
       currentStorageId.current = storages[0];

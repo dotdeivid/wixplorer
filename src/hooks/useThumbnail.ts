@@ -127,17 +127,25 @@ export function useThumbnail({ file, getThumb, rootMargin = '80px', isNetwork = 
    */
   const generationRef = useRef(0);
 
-  // Reset state for new file; cancel any pending task from previous file
-  useEffect(() => {
-    fetchedRef.current = false;
+  // New file → reset the visible state during render (React's recommended
+  // alternative to setState inside an effect).
+  const [prevFileId, setPrevFileId] = useState(file.id);
+  if (prevFileId !== file.id) {
+    setPrevFileId(file.id);
     setThumbUrl(null);
     setLoading(false);
+  }
 
+  // Cancel any pending task from the previous file and release its blob URL
+  useEffect(() => {
+    fetchedRef.current = false;
+    const generation = generationRef;
+    const blobUrl = blobUrlRef;
     return () => {
-      generationRef.current++; // invalidate pending tasks
-      if (blobUrlRef.current) {
-        URL.revokeObjectURL(blobUrlRef.current);
-        blobUrlRef.current = null;
+      generation.current++; // invalidate pending tasks
+      if (blobUrl.current) {
+        URL.revokeObjectURL(blobUrl.current);
+        blobUrl.current = null;
       }
     };
   }, [file.id]);

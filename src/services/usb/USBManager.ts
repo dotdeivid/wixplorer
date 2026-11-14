@@ -1,4 +1,5 @@
 /// <reference types="w3c-web-usb" />
+import { debug } from '../../utils/debug';
 
 export interface ConnectedUSBDevice {
   usbDevice: USBDevice;
@@ -147,7 +148,7 @@ export class USBManager {
 
       const openCode = responseCode(openR);
       if (openCode !== 0x2001 /* OK */ && openCode !== 0x201E /* SessionAlreadyOpen */) {
-        console.log(`[USBManager] OpenSession failed (code=0x${openCode.toString(16)}) → not MTP`);
+        debug(`[USBManager] OpenSession failed (code=0x${openCode.toString(16)}) → not MTP`);
         await device.releaseInterface(ifaceNumber);
         await device.close();
         return false;

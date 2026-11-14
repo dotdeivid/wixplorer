@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { toast } from 'sonner';
 import { X } from 'lucide-react';
 import styles from './RecentsView.module.css';
@@ -59,15 +59,9 @@ interface RecentsViewProps {
 
 /* ─── Component ──────────────────────────────────────────────────────────── */
 const RecentsView: React.FC<RecentsViewProps> = ({ isConnected, onVerify, onActivate }) => {
-  const [entries, setEntries] = useState<RecentEntry[]>([]);
+  // Se lee al montar (cada vez que se abre la sección Recientes)
+  const [entries, setEntries] = useState<RecentEntry[]>(() => RecentsStorage.getAll());
   const [verifying, setVerifying] = useState<number | null>(null);
-
-  // Load on mount and whenever storage changes
-  const loadEntries = useCallback(() => {
-    setEntries(RecentsStorage.getAll());
-  }, []);
-
-  useEffect(() => { loadEntries(); }, [loadEntries]);
 
   const handleRemove = useCallback((e: React.MouseEvent, id: number) => {
     e.stopPropagation();

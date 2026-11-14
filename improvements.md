@@ -23,7 +23,7 @@ Las prioridades van de 🔴 (rompe funcionalidad o seguridad) a 🟡 (bug menor 
   - **Flutter 3.50 exige Gradle ≥ 9.3.1 y AGP ≥ 9.1.1**, y AGP 8.x no funciona desde Gradle 9.6. El build de Android estaba roto con cualquier wrapper. Se subió AGP a 9.3.1 y Kotlin a 2.4.20 (la combinación de la plantilla oficial de Flutter 3.50), y se migró `kotlinOptions` a `kotlin { compilerOptions }`. Se mantiene el wrapper Gradle 9.7.1.
   - **`video_thumbnail` no compila con AGP 9.** Se reemplazó por `fc_native_video_thumbnail` 4.0.0.
   - **El `.syso` de Windows se generaba para 386 y nunca se enlazaba**, porque `go build main.go` ignora los `.syso`, así que el `.exe` salía sin ícono ni metadatos. Ahora se genera con `goversioninfo -64` y se compila el paquete (`.`).
-- **Fase 2 — Mejoras (§2): pendiente.**
+- **Fase 2 — Mejoras (§2): aplicada** en la rama `feat/phase2-improvements`. El detalle de lo que se hizo está en cada punto de §2.
 - **Fase 3 — Actualizaciones (§3): aplicada** en la rama `chore/phase3-deps`, que está apilada sobre la fase 1. Queda un solo pendiente: TypeScript 7, que espera soporte de `typescript-eslint`.
 
 ---
@@ -106,32 +106,38 @@ Las prioridades van de 🔴 (rompe funcionalidad o seguridad) a 🟡 (bug menor 
 
 ---
 
-## 2. Mejoras (dentro del alcance actual)
+## 2. Mejoras (dentro del alcance actual) — ✅ aplicadas
 
 ### Seguridad
-- 🟢 **Cabeceras en `/api/file`**. En modo auto-hospedado la web y los archivos comparten origen (`http://IP:7070`). Un `.html` o `.svg` del teléfono servido `inline` (respuestas 206) podría ejecutar scripts en ese origen. Agregar `X-Content-Type-Options: nosniff` y `Content-Security-Policy: sandbox` a las respuestas de archivos, y usar `attachment` salvo para tipos multimedia.
-- 🟢 **`sandbox=""` en el `<iframe srcDoc>` del preview de texto** (`PreviewPanel.tsx:478`), como defensa adicional. Hoy el contenido está escapado; además conviene cortar antes de escapar para no partir entidades.
-- 🟢 **Comparación del token en tiempo constante** (`auth_service.dart:68`) y `Content-Disposition` con `filename*=UTF-8''…` en lugar de `filename="%E2…"`.
-- 🟢 **CORS**: en modo auto-hospedado no hace falta `*`. Se puede limitar a `http://localhost:*` / `127.0.0.1` (launcher Go) más el propio origen.
+- ✅ **Cabeceras en `/api/file`**: `X-Content-Type-Options: nosniff` y `Content-Security-Policy: sandbox` en todas las respuestas de archivos. Solo la multimedia segura (imagen, video y audio, sin SVG) se sirve `inline`; el resto, como `attachment`.
+- ✅ **`sandbox=""` en el `<iframe srcDoc>`** del preview de texto. El texto se corta antes de escaparlo, para no partir entidades.
+- ✅ **Comparación en tiempo constante** del PIN y del token, y `Content-Disposition` con `filename*=UTF-8''…` más un nombre ASCII de respaldo.
+- ✅ **CORS restringido**: solo el propio origen del teléfono y loopback (`localhost`, `127.0.0.1` y `[::1]`, para el launcher de escritorio y Vite). Un request con `Origin` ajeno recibe 403 antes de llegar a la API. Además `/api/auth` exige `Content-Type: application/json`, lo que obliga a hacer preflight: una página de la red no puede probar PINs con un POST de formulario ni bloquear al usuario.
+- La lógica está en `mobile/lib/services/http_security.dart`, con tests.
 
 ### Rendimiento / robustez
-- 🟢 **Validación de paths sin I/O síncrono**. `FileService._realPath` usa `typeSync` y `resolveSymbolicLinksSync` en cada request y para cada raíz, lo que bloquea el isolate del servidor. Conviene resolver las raíces una vez en `init()` y usar las versiones async para el path pedido.
-- 🟢 **Thumbs de imagen**: el último fallback sirve el archivo original completo (`server_service.dart:486`). Para una foto RAW de 50 MB es peor que un 204. Además `readAsBytes()` se hace dos veces cuando falla el primer intento.
-- 🟢 **Listado progresivo en WiFi**: el render parcial no está ordenado y al final "salta" al orden definitivo. Se puede ordenar en el cliente al acumular.
-- 🟢 **Logs de depuración**: `MtpClient` y `useMTPDevice` tienen muchos `console.log` en producción. Conviene un `debug()` que solo loguee con `import.meta.env.DEV`.
-- 🟢 **Service worker**: el cache `pt-v1` nunca purga assets con hash viejos. Se pueden borrar las entradas `/assets/*` que no figuren en el `index.html` actual, o usar un nombre de cache por build.
-- 🟢 **Contexto no seguro en modo auto-hospedado**: sobre `http://IP:7070` no existen `showSaveFilePicker` ni el service worker, así que las descargas grandes caen siempre al Blob en RAM. Vale la pena documentarlo y avisar en la UI antes de descargar archivos de varios GB.
+- ✅ **Validación de paths async**: las raíces se resuelven una vez en `init()` y cada request resuelve su path con I/O async (`FileSystemEntity.type` y `resolveSymbolicLinks`). Ya no bloquea el isolate del servidor.
+- ✅ **Thumbs de imagen**: el archivo se lee una sola vez. Si no se puede generar la miniatura, se sirve el original solo hasta 512 KB; si es más grande, se responde 204.
+- ✅ **Listado WiFi ordenado** (carpetas primero, luego por nombre), también en los resultados parciales. Antes, con el orden "ninguno", llegaba en el orden del servidor.
+- ✅ **`debug()`** (`src/utils/debug.ts`): los logs del protocolo MTP solo aparecen con `vite dev`.
+- ✅ **Service worker**: el build genera `asset-manifest.json` (plugin en `vite.config.ts`), que incluye los chunks que se cargan bajo demanda. Al llegar un `index.html` nuevo, el SW borra del caché los `/assets/*` que no están en esa lista.
+- ✅ **Aviso de descarga en memoria**: si no hay File System Access API (Firefox, Safari o `http://IP`) y el archivo supera 1 GB, aparece un aviso que explica por qué y cómo evitarlo.
 
 ### UX
-- 🟢 Mostrar en la app móvil el puerto real y un QR con `http://IP:puerto` (no suma dependencias pesadas: `qr_flutter`).
-- 🟢 Aviso de inactividad: hoy solo avisa ("el servidor sigue activo"). Se puede ofrecer un apagado automático opcional tras N minutos, que además ayuda con el límite de FGS de Android 15.
-- 🟢 Mensaje de 429 en el cliente alineado con el comportamiento real (esperar 30 s).
+- ✅ **QR** con `http://IP:puerto` (`qr_flutter`), en un diálogo desde la tarjeta de estado. El puerto real ya se veía en la URL.
+- ✅ **Apagado automático**: a los 15 min sin actividad aparece un aviso con la hora de apagado y un botón "Mantener activo"; a los 30 min el servidor se detiene. Las transferencias en curso (descargas largas, video) no cuentan como inactividad.
+- ✅ Mensaje de 429 alineado con el bloqueo real (fase 1).
 
 ### Calidad / tests
-- 🟢 Tests para el parser de `Range` (extraerlo a una función pura en Dart) y para `_readNdjson` / `downloadFileChunked` con `fetch` mockeado.
-- 🟢 Warning de lint en `useThumbnail.ts:137`: copiar `generationRef` a una variable local dentro del efecto. `FileExplorer.tsx:100` es el aviso esperado de React Compiler con `@tanstack/react-virtual`; se puede silenciar con un comentario explicativo.
+- ✅ Tests de `parseRange` (fase 1), de `http_security`, y de `NetworkClient` con `fetch` mockeado: NDJSON partido entre chunks, línea de error, 401, descarga por chunks completa y en orden, rechazo de respuestas 200 y cancelación.
+- ✅ Warnings de lint resueltos: `useThumbnail` (ref copiada dentro del efecto) y `useVirtualizer` (documentado y silenciado; es esperado).
 - ✅ `@types/jszip` eliminado (fase 3).
-- 🟢 **`react-hooks/set-state-in-effect`** (nueva en `eslint-plugin-react-hooks` 7.1, bajada a `warn` en `eslint.config.js`): 10 efectos resetean estado al cambiar de archivo o carpeta (`PreviewPanel`, `GalleryPreview`, `AppLayout`, `RecentsView`, `useThumbnail`, `useMTPDevice`). Migrarlos a `key` en el componente o a estado derivado, y después volver la regla a `error`.
+- ✅ **`react-hooks/set-state-in-effect`**: los 10 casos se migraron y la regla volvió a `error` (configuración por defecto del plugin). Se usaron tres patrones:
+  - `key` en `PreviewPanel` y `GalleryPreview`, para que el estado arranque limpio con cada archivo.
+  - Ajuste de estado durante el render en `AppLayout` y `useThumbnail`.
+  - Estado inicial perezoso en `RecentsView`.
+  - Además, un callback `onSessionExpired` en `useNetworkDevice` reemplaza al estado intermedio `lastExpiredDevice`.
+- Lint: **0 errores y 0 warnings**.
 
 ---
 

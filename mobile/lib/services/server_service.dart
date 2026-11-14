@@ -24,6 +24,7 @@ import 'auth_service.dart';
 import 'file_service.dart';
 import 'foreground_service_channel.dart';
 import 'http_range.dart';
+import 'http_security.dart';
 
 // ── Top-level function para compute() ────────────────────────────────────────
 // Necesita ser top-level (no método de clase) para que compute() pueda
@@ -48,11 +49,18 @@ class ServerService {
   // Puerto preferido; si está ocupado se prueban los siguientes.
   static const int _basePort = 7070;
   static const int _maxPortAttempts = 10;
+  // Sin requests durante _inactivityThreshold se avisa; si siguen sin
+  // llegar hasta _autoStopAfter, el servidor se detiene solo. Además de
+  // ahorrar batería, evita agotar el límite diario del foreground service
+  // dataSync en Android 15+.
   static const Duration _inactivityThreshold = Duration(minutes: 15);
+  static const Duration _autoStopAfter = Duration(minutes: 30);
 
   // ── Semáforo para generación de thumbnails ────────────────────────────────
   // Limita las compresiones de imagen concurrentes para no saturar la CPU/GPU.
   static const int _maxConcurrentThumbs = 3;
+  // Tope para servir la imagen original cuando no se pudo generar miniatura.
+  static const int _maxOriginalAsThumb = 512 * 1024;
   int _activeThumbOps = 0;
   final _thumbSlotQueue = <Completer<void>>[];
 
@@ -62,6 +70,10 @@ class ServerService {
   int _generation = 0;
   String? _cachedDeviceName;
   Timer? _inactivityTimer;
+  Timer? _autoStopTimer;
+  // Requests de la API con respuesta todavía en curso (descargas, video).
+  // Mientras haya alguno el servidor no está inactivo.
+  int _activeRequests = 0;
 
   // Assets web pre-cargados en memoria.
   final Map<String, Uint8List> _webAssets = {};
@@ -159,6 +171,9 @@ class ServerService {
     _generation++;
     _inactivityTimer?.cancel();
     _inactivityTimer = null;
+    _autoStopTimer?.cancel();
+    _autoStopTimer = null;
+    _activeRequests = 0;
     await _server?.close(force: true);
     _server = null;
     AuthService.instance.invalidate();
@@ -265,6 +280,12 @@ class ServerService {
 
     router.post('/api/auth', (Request req) async {
       final client = _clientIp(req);
+      // Exigir JSON obliga a los navegadores a hacer preflight CORS en
+      // requests cross-origin: una página ajena no puede probar PINs (ni
+      // bloquear al usuario) con un simple POST de formulario.
+      if (!(req.headers['content-type'] ?? '').startsWith('application/json')) {
+        return _json({'error': 'unsupported_media_type'}, status: 415);
+      }
       if (AuthService.instance.isBlockedFor(client)) {
         return _tooManyAttempts();
       }
@@ -370,12 +391,23 @@ class ServerService {
         return _json({'error': 'missing path'}, status: 400);
       }
       try {
-        final file = FileService.instance.openFile(path);
+        final file = await FileService.instance.openFile(path);
         if (!await file.exists()) return _json({'error': 'not found'}, status: 404);
 
         final mimeType = lookupMimeType(path) ?? 'application/octet-stream';
         final name = path.split('/').last;
         final fileLength = await file.length();
+        // En modo auto-hospedado los archivos comparten origen con la web:
+        // un .html/.svg del teléfono abierto inline podría ejecutar scripts
+        // ahí. nosniff + CSP sandbox lo impiden, y solo la multimedia
+        // (que usan <img>/<video>/<audio>) se sirve inline.
+        final fileHeaders = {
+          'content-type': mimeType,
+          'accept-ranges': 'bytes',
+          'content-disposition': contentDisposition(name, inline: isSafeInlineType(mimeType)),
+          'x-content-type-options': 'nosniff',
+          'content-security-policy': 'sandbox',
+        };
 
         switch (parseRange(req.headers['range'], fileLength)) {
           case RangeNotSatisfiable():
@@ -391,11 +423,9 @@ class ServerService {
               206,
               body: file.openRead(range.start, range.end + 1),
               headers: {
-                'content-type': mimeType,
+                ...fileHeaders,
                 'content-length': range.length.toString(),
                 'content-range': 'bytes ${range.start}-${range.end}/$fileLength',
-                'accept-ranges': 'bytes',
-                'content-disposition': 'inline; filename="${Uri.encodeComponent(name)}"',
               },
             );
           case RangeIgnored():
@@ -405,10 +435,8 @@ class ServerService {
         return Response.ok(
           file.openRead(),
           headers: {
-            'content-type': mimeType,
+            ...fileHeaders,
             'content-length': fileLength.toString(),
-            'accept-ranges': 'bytes',
-            'content-disposition': 'attachment; filename="${Uri.encodeComponent(name)}"',
           },
         );
       } on FileSystemException catch (e) {
@@ -458,7 +486,7 @@ class ServerService {
         return _json({'error': 'missing path'}, status: 400);
       }
       try {
-        final file = FileService.instance.openFile(path);
+        final file = await FileService.instance.openFile(path);
         if (!await file.exists()) return _json({'error': 'not found'}, status: 404);
 
         final mimeType = lookupMimeType(path) ?? '';
@@ -503,8 +531,13 @@ class ServerService {
         // 2. Generar thumbnail (dentro del semáforo para limitar concurrencia)
         return await _withThumbSlot(() async {
           if (isImage) {
+            final Uint8List srcBytes;
             try {
-              final srcBytes = await file.readAsBytes();
+              srcBytes = await file.readAsBytes();
+            } catch (_) {
+              return Response(204);
+            }
+            try {
               // Primario: WebP nativo via FlutterImageCompress (hilo nativo, no bloquea Dart)
               final webpData = await FlutterImageCompress.compressWithList(
                 srcBytes,
@@ -529,7 +562,6 @@ class ServerService {
 
             // Fallback: JPEG en Dart Isolate (no bloquea el isolate principal)
             try {
-              final srcBytes = await file.readAsBytes();
               final jpegData = await compute(_encodeJpegThumbnail, srcBytes);
               if (jpegData.isNotEmpty) {
                 unawaited(_saveThumbToDiskCache(path, mtimeMs, jpegData, 'jpg'));
@@ -544,15 +576,21 @@ class ServerService {
               }
             } catch (_) {}
 
-            // Último fallback: archivo original
-            return Response.ok(
-              file.openRead(),
-              headers: {
-                'content-type': mimeType,
-                'content-length': fileStat.size.toString(),
-                ...cacheHeaders,
-              },
-            );
+            // Último fallback: el original, solo si es chico. Para una foto
+            // de varios MB (o un RAW) es mejor no tener miniatura que
+            // mandarla entera en cada grilla.
+            if (srcBytes.length <= _maxOriginalAsThumb && mimeType != 'image/svg+xml') {
+              return Response.ok(
+                Stream.value(srcBytes),
+                headers: {
+                  'content-type': mimeType,
+                  'content-length': srcBytes.length.toString(),
+                  'x-content-type-options': 'nosniff',
+                  ...cacheHeaders,
+                },
+              );
+            }
+            return Response(204);
           }
 
           // Video: frame JPEG nativo → recomprimir a WebP
@@ -646,14 +684,30 @@ class ServerService {
 
   // ── Middlewares ───────────────────────────────────────────────────────────
 
+  /// CORS restringido: solo la web del propio teléfono y la del launcher de
+  /// escritorio (loopback) pueden usar la API desde un navegador. Un request
+  /// con `Origin` de cualquier otro sitio se rechaza antes de llegar a la API.
+  /// Los requests sin `Origin` (navegación, <img>/<video> del mismo origen,
+  /// curl) pasan: la API igual exige el token.
   Middleware _corsMiddleware() {
     return (Handler inner) {
       return (Request req) async {
+        final origin = req.headers['origin'];
+        if (origin != null && !isAllowedOrigin(origin, host: req.headers['host'])) {
+          return Response.forbidden('Origin not allowed', headers: {'vary': 'origin'});
+        }
+        final cors = origin == null ? const <String, String>{} : _corsHeaders(origin);
         if (req.method == 'OPTIONS') {
-          return Response.ok('', headers: _corsHeaders());
+          return Response.ok('', headers: cors);
         }
         final response = await inner(req);
-        return response.change(headers: _corsHeaders());
+        if (cors.isEmpty) return response;
+        // Conservar el Vary que ya puso gzip (accept-encoding)
+        final vary = response.headers['vary'];
+        return response.change(headers: {
+          ...cors,
+          if (vary != null) 'vary': '$vary, origin',
+        });
       };
     };
   }
@@ -691,12 +745,54 @@ class ServerService {
   Middleware _activityMiddleware() {
     return (Handler inner) {
       return (Request req) async {
-        if (req.url.path.startsWith('api/')) {
-          _resetInactivityTimer();
+        if (!req.url.path.startsWith('api/')) return inner(req);
+
+        _activeRequests++;
+        _resetInactivityTimer();
+        var finished = false;
+        void finish() {
+          if (finished) return;
+          finished = true;
+          _activeRequests--;
+          // La inactividad se cuenta desde que terminó la última respuesta
+          if (_activeRequests == 0) _resetInactivityTimer();
         }
-        return inner(req);
+
+        try {
+          final response = await inner(req);
+          return response.change(body: _onBodyDone(response.read(), finish));
+        } catch (_) {
+          finish();
+          rethrow;
+        }
       };
     };
+  }
+
+  /// Envuelve [body] para llamar a [onDone] cuando termina de enviarse o el
+  /// cliente corta la conexión.
+  static Stream<List<int>> _onBodyDone(Stream<List<int>> body, void Function() onDone) {
+    late final StreamController<List<int>> ctrl;
+    ctrl = StreamController<List<int>>(
+      onListen: () {
+        final sub = body.listen(
+          ctrl.add,
+          onError: ctrl.addError,
+          onDone: () {
+            onDone();
+            ctrl.close();
+          },
+        );
+        ctrl
+          ..onPause = sub.pause
+          ..onResume = sub.resume
+          ..onCancel = () {
+            onDone();
+            return sub.cancel();
+          };
+      },
+    );
+    return ctrl.stream;
   }
 
   Middleware _authMiddleware() {
@@ -725,15 +821,29 @@ class ServerService {
 
   // ── Inactividad ───────────────────────────────────────────────────────────
 
+  /// "Mantener activo": reinicia la cuenta de inactividad desde la app.
+  void keepAlive() {
+    if (_current.isRunning) _resetInactivityTimer();
+  }
+
   void _resetInactivityTimer() {
     _inactivityTimer?.cancel();
+    _autoStopTimer?.cancel();
     if (_current.inactivityWarning) {
-      _emit(_current.copyWith(inactivityWarning: false));
+      _emit(_current.copyWith(inactivityWarning: false, autoStopAt: null));
     }
+    // Con transferencias en curso no se cuenta; se reinicia al terminar.
+    if (_activeRequests > 0) return;
+
     _inactivityTimer = Timer(_inactivityThreshold, () {
-      if (_current.isRunning) {
-        _emit(_current.copyWith(inactivityWarning: true));
-      }
+      if (!_current.isRunning) return;
+      _emit(_current.copyWith(
+        inactivityWarning: true,
+        autoStopAt: DateTime.now().add(_autoStopAfter - _inactivityThreshold),
+      ));
+    });
+    _autoStopTimer = Timer(_autoStopAfter, () {
+      if (_current.isRunning && _activeRequests == 0) stop();
     });
   }
 
@@ -760,8 +870,9 @@ class ServerService {
 
   // ── Helpers ───────────────────────────────────────────────────────────────
 
-  static Map<String, String> _corsHeaders() => {
-        'access-control-allow-origin': '*',
+  static Map<String, String> _corsHeaders(String origin) => {
+        'access-control-allow-origin': origin,
+        'vary': 'origin',
         'access-control-allow-methods': 'GET, POST, DELETE, OPTIONS',
         'access-control-allow-headers': 'authorization, content-type, range, accept',
         'access-control-expose-headers': 'content-range, accept-ranges, content-length',

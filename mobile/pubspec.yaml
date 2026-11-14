@@ -25,6 +25,7 @@ dependencies:
   path: ^1.9.1
   url_launcher: ^6.3.3
   material_ui: ^1.11.0
+  qr_flutter: ^4.1.0
 
 dev_dependencies:
   flutter_test:

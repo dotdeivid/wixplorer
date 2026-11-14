@@ -66,7 +66,7 @@ class _HomeScreenState extends State<HomeScreen> {
             if (_serverState.isRunning && _serverState.limitedAccess)
               const _LimitedAccessBanner(),
             if (_serverState.inactivityWarning)
-              const _InactivityBanner(),
+              _InactivityBanner(autoStopAt: _serverState.autoStopAt),
             if (_serverState.status == ServerStatus.error)
               _ErrorBanner(message: _serverState.errorMessage ?? 'Error desconocido'),
             const _Footer(),
@@ -134,27 +134,40 @@ class _HintText extends StatelessWidget {
 }
 
 class _InactivityBanner extends StatelessWidget {
-  const _InactivityBanner();
+  final DateTime? autoStopAt;
+  const _InactivityBanner({required this.autoStopAt});
 
   @override
   Widget build(BuildContext context) {
+    final at = autoStopAt;
+    final when = at == null
+        ? ''
+        : ' — se detendrá a las ${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
     return Container(
       margin: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
       decoration: BoxDecoration(
         color: const Color(0xFF3A2F00),
         borderRadius: BorderRadius.circular(10),
         border: Border.all(color: const Color(0xFFFFCC00).withAlpha(120)),
       ),
-      child: const Row(
+      child: Row(
         children: [
-          Icon(Icons.timer_off_outlined, color: Color(0xFFFFCC00), size: 16),
-          SizedBox(width: 8),
+          const Icon(Icons.timer_off_outlined, color: Color(0xFFFFCC00), size: 16),
+          const SizedBox(width: 8),
           Expanded(
             child: Text(
-              '15 min sin actividad — el servidor sigue activo',
-              style: TextStyle(color: Color(0xFFFFCC00), fontSize: 12),
+              '15 min sin actividad$when',
+              style: const TextStyle(color: Color(0xFFFFCC00), fontSize: 12),
             ),
+          ),
+          TextButton(
+            onPressed: ServerService.instance.keepAlive,
+            style: TextButton.styleFrom(
+              foregroundColor: const Color(0xFFFFCC00),
+              textStyle: const TextStyle(fontSize: 12, fontWeight: FontWeight.w600),
+            ),
+            child: const Text('Mantener activo'),
           ),
         ],
       ),
