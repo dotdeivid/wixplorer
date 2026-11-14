@@ -1,5 +1,8 @@
+import { readFileSync } from 'node:fs'
 import { defineConfig, type Plugin } from 'vite'
 import react from '@vitejs/plugin-react'
+
+const pkg = JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')) as { version: string }
 
 /**
  * Emite dist/asset-manifest.json con todos los archivos de assets/ del build,
@@ -28,4 +31,8 @@ function assetManifest(): Plugin {
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [react(), assetManifest()],
+  define: {
+    // Versión de package.json, para mostrarla en "Acerca de"
+    __APP_VERSION__: JSON.stringify(pkg.version),
+  },
 })

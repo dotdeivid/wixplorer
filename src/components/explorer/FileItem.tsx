@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, memo } from 'react';
 import styles from './FileItem.module.css';
 import type { FileItem as FileItemData } from '../../hooks/useMTPDevice';
 import { useThumbnail, isImageFile } from '../../hooks/useThumbnail';
-import { getFileEmoji } from './fileEmoji';
+import FileTypeIcon from './FileTypeIcon';
 import { MTP_MAX_STRING_LENGTH } from '../../services/mtp/MtpPacket';
 
 /* ─── macOS folder SVG ───────────────────────────────────────────────────── */
@@ -55,7 +55,7 @@ const ImageThumb = memo<{
         ? <img className={styles.thumbImg} src={thumbUrl} alt={file.name} draggable={false} />
         : loading
           ? <div className={styles.thumbLoading}><div className={styles.thumbSpinner} /></div>
-          : <span className={styles.fileEmoji}>{getFileEmoji(file.name)}</span>
+          : <FileTypeIcon name={file.name} size={52} className={styles.fileEmoji} />
       }
     </div>
   );
@@ -120,23 +120,31 @@ interface FileItemProps {
   isRenaming?: boolean;
   onRenameConfirm?: (newName: string) => void;
   onRenameCancel?: () => void;
+  /** 0 para el ítem que recibe el foco con Tab (roving tabindex), -1 para el resto. */
+  tabIndex?: number;
+  /** Está en el portapapeles para mover (se muestra atenuado). */
+  isCut?: boolean;
 }
 
 const FileItem = memo<FileItemProps>(({
   file, isSelected, onSelect, onActivate, onContextMenu, getThumb, isNetworkMode,
-  onDragStart, onDrop, isRenaming, onRenameConfirm, onRenameCancel,
+  onDragStart, onDrop, isRenaming, onRenameConfirm, onRenameCancel, tabIndex = -1, isCut,
 }) => {
   const [isDropTarget, setIsDropTarget] = useState(false);
   const showThumb = !file.isFolder && isImageFile(file.name) && !!getThumb;
 
   return (
     <div
-      className={`${styles.item} ${isSelected ? styles.selected : ''} ${isDropTarget ? styles.dropTarget : ''}`}
+      className={`${styles.item} ${isSelected ? styles.selected : ''} ${isDropTarget ? styles.dropTarget : ''} ${isCut ? styles.cut : ''}`}
       data-file-id={file.id}
+      role="option"
+      aria-selected={isSelected}
+      aria-label={file.isFolder ? `${file.name}, carpeta` : file.name}
+      tabIndex={tabIndex}
       onClick={e => { if (isRenaming) return; e.stopPropagation(); onSelect(e); }}
       onDoubleClick={e => { if (isRenaming) return; e.preventDefault(); onActivate(); }}
       onContextMenu={e => { if (isRenaming) return; e.stopPropagation(); onContextMenu(e); }}
-      draggable={!isRenaming}
+      draggable={!isRenaming && !!onDragStart}
       onDragStart={isRenaming ? undefined : onDragStart}
       onDragOver={file.isFolder ? (e) => { e.preventDefault(); setIsDropTarget(true); } : undefined}
       onDragLeave={file.isFolder ? () => setIsDropTarget(false) : undefined}
@@ -147,7 +155,7 @@ const FileItem = memo<FileItemProps>(({
           ? <FolderIcon />
           : showThumb
             ? <ImageThumb file={file} getThumb={getThumb!} isNetwork={isNetworkMode} />
-            : <span className={styles.fileEmoji}>{getFileEmoji(file.name)}</span>
+            : <FileTypeIcon name={file.name} size={52} className={styles.fileEmoji} />
         }
       </div>
       {isRenaming && onRenameConfirm && onRenameCancel

@@ -29,7 +29,7 @@
   right: 0;
   top: 0;
   height: 2px;
-  background-color: rgba(255, 255, 255, 0.08);
+  background-color: rgba(var(--fg-rgb), 0.08);
   overflow: hidden;
 }
 
@@ -60,7 +60,7 @@
   width: 18px;
   height: 18px;
   border-radius: 50%;
-  border: 1px solid rgba(255,255,255,0.18);
+  border: 1px solid rgba(var(--fg-rgb), 0.18);
   background: transparent;
   color: var(--text-tertiary);
   cursor: pointer;
@@ -70,6 +70,6 @@
 }
 
 .cancelBtn:hover {
-  background-color: rgba(255,255,255,0.1);
+  background-color: rgba(var(--fg-rgb), 0.1);
   color: var(--text-primary);
 }

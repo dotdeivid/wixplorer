@@ -103,7 +103,7 @@
 
 .videoTimeLabel {
   font-size: 10px;
-  color: rgba(255,255,255,0.85);
+  color: rgba(var(--fg-rgb), 0.85);
   letter-spacing: 0.3px;
   line-height: 1;
   user-select: none;
@@ -112,7 +112,7 @@
 .videoTimelineTrack {
   position: relative;
   height: 3px;
-  background: rgba(255,255,255,0.28);
+  background: rgba(var(--fg-rgb), 0.28);
   border-radius: 2px;
   overflow: visible;
 }
@@ -182,7 +182,7 @@
 .spinner {
   width: 24px;
   height: 24px;
-  border: 2px solid rgba(255,255,255,0.15);
+  border: 2px solid rgba(var(--fg-rgb), 0.15);
   border-top-color: var(--color-accent-blue);
   border-radius: 50%;
   animation: spin 0.8s linear infinite;
@@ -194,6 +194,7 @@
 
 /* ── Metadata area (bottom) ────────────────────────────────── */
 .metaArea {
+  user-select: text;
   padding: 12px 14px;
   display: flex;
   flex-direction: column;
@@ -245,8 +246,8 @@
   padding: 7px;
   border-radius: 7px;
   border: none;
-  background-color: var(--color-accent-blue);
-  color: white;
+  background-color: var(--color-accent-fill);
+  color: var(--text-on-accent);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
@@ -254,7 +255,7 @@
   transition: background-color 0.15s;
 }
 
-.downloadBtn:hover { background-color: var(--color-accent-blue-hover); }
+.downloadBtn:hover:not(:disabled) { filter: brightness(1.1); }
 .downloadBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Stacked icons (multi-select) ─────────────────────────── */
@@ -313,7 +314,7 @@
 .pdfBtn {
   background-color: rgba(60, 60, 60, 0.85); /* background gris */
   backdrop-filter: blur(8px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(var(--fg-rgb), 0.1);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
   color: #fff;
   width: 38px;
@@ -334,4 +335,21 @@
 .pdfBtn:disabled {
   opacity: 0.3;
   cursor: not-allowed;
+}
+
+/* ── Audio y fallback ── */
+.audioWrap {
+  width: 100%;
+  padding: 0 8px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+}
+
+.audioIcon { color: #ff375f; }
+
+.fallbackWrap {
+  display: flex;
+  justify-content: center;
 }

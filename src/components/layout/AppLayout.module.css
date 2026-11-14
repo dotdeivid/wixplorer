@@ -82,20 +82,42 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 7px 16px;
-  background-color: rgba(255, 59, 48, 0.15);
+  padding: 6px 8px 6px 16px;
+  background-color: var(--color-destructive-bg);
   border-bottom: 1px solid rgba(255, 59, 48, 0.25);
-  color: #ff9f9a;
+  color: var(--color-destructive-text);
   font-size: 12px;
 }
-.errorBanner button {
-  margin-left: auto;
+
+.errorIcon { flex-shrink: 0; }
+
+.errorText {
+  flex: 1;
+  min-width: 0;
+  line-height: 1.4;
+}
+
+.errorClose {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  flex-shrink: 0;
   background: none;
   border: none;
-  color: rgba(255,255,255,0.4);
+  border-radius: 6px;
+  color: var(--text-secondary);
   cursor: pointer;
-  font-size: 16px;
-  border-radius: 3px;
-  padding: 0 4px;
 }
-.errorBanner button:hover { color: rgba(255,255,255,0.75); }
+.errorClose:hover { background: rgba(var(--fg-rgb), 0.08); color: var(--text-primary); }
+
+/* Selección por arrastre */
+.rubberBand {
+  position: fixed;
+  border: 1px solid rgba(10, 132, 255, 0.8);
+  background-color: rgba(10, 132, 255, 0.12);
+  pointer-events: none;
+  z-index: 9999;
+  border-radius: 2px;
+}

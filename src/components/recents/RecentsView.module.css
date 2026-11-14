@@ -20,27 +20,49 @@
 }
 
 /* ── File row ────────────────────────────────────────────────── */
+.list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
 .row {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
+  gap: 4px;
+  padding-right: 6px;
   border-radius: 7px;
-  cursor: pointer;
   transition: background-color 0.08s;
   min-width: 0;
 }
 
-.row:hover {
+.row:hover,
+.row:focus-within {
   background-color: var(--bg-item-hover);
 }
 
+.verifying { opacity: 0.55; }
+
+.rowMain {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border: none;
+  background: none;
+  border-radius: 7px;
+  text-align: left;
+  color: inherit;
+  cursor: pointer;
+}
+
 .rowIcon {
-  font-size: 22px;
-  line-height: 1;
+  display: flex;
+  justify-content: center;
   flex-shrink: 0;
   width: 28px;
-  text-align: center;
 }
 
 .rowBody {
@@ -75,20 +97,23 @@
   border: none;
   color: var(--text-tertiary);
   cursor: pointer;
-  padding: 2px 4px;
-  border-radius: 4px;
+  width: 24px;
+  height: 24px;
+  justify-content: center;
+  border-radius: 6px;
   display: flex;
   align-items: center;
   transition: opacity 0.12s, color 0.12s;
 }
 
-.row:hover .removeBtn {
+.row:hover .removeBtn,
+.row:focus-within .removeBtn {
   opacity: 1;
 }
 
 .removeBtn:hover {
   color: var(--text-primary);
-  background-color: rgba(255,255,255,0.1);
+  background-color: rgba(var(--fg-rgb), 0.1);
 }
 
 /* ── Empty state ─────────────────────────────────────────────── */
@@ -103,10 +128,7 @@
   padding-bottom: 60px;
 }
 
-.emptyIcon {
-  font-size: 40px;
-  opacity: 0.4;
-}
+.emptyIcon { color: var(--text-tertiary); }
 
 .emptyText {
   font-size: 13px;
@@ -122,9 +144,9 @@
   gap: 8px;
   padding: 8px 14px;
   margin-bottom: 12px;
-  background-color: rgba(255, 159, 10, 0.12);
+  background-color: var(--color-warning-bg);
   border: 1px solid rgba(255, 159, 10, 0.25);
   border-radius: 8px;
   font-size: 12px;
-  color: #ff9f0a;
+  color: var(--color-warning);
 }

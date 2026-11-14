@@ -1,0 +1,22 @@
+/* Colores por categoría: legibles sobre los fondos claro y oscuro. */
+.icon { flex-shrink: 0; }
+.image   { color: #32ade6; }
+.video   { color: #bf5af2; }
+.audio   { color: #ff375f; }
+.pdf     { color: #ff453a; }
+.archive { color: #ac8e68; }
+.apk     { color: #30d158; }
+.doc     { color: #0a84ff; }
+.sheet   { color: #30d158; }
+.other   { color: var(--text-secondary); }
+
+@media (prefers-color-scheme: light) {
+  .image   { color: #0077a8; }
+  .video   { color: #8944ab; }
+  .audio   { color: #d30f45; }
+  .pdf     { color: #d70015; }
+  .archive { color: #7f6545; }
+  .apk     { color: #248a3d; }
+  .doc     { color: #0060d4; }
+  .sheet   { color: #248a3d; }
+}

@@ -2,10 +2,14 @@ import React from 'react';
 import styles from './StatusBar.module.css';
 import type { FileItem } from '../../hooks/useMTPDevice';
 import { formatSpeed } from '../../hooks/useNetworkDevice';
+import { plural } from '../../utils/format';
 
 interface StatusBarProps {
   isConnected: boolean;
+  /** Archivos visibles (filtrados por la búsqueda). */
   fileCount: number;
+  /** Total de la carpeta, para "3 de 120" durante una búsqueda. */
+  totalCount?: number;
   isLoading: boolean;
   selectedFiles: FileItem[];
   downloadProgress?: number | null;
@@ -34,7 +38,7 @@ function formatSize(bytes: number): string {
 }
 
 const StatusBar: React.FC<StatusBarProps> = ({
-  isConnected, fileCount, isLoading, selectedFiles,
+  isConnected, fileCount, totalCount, isLoading, selectedFiles,
   downloadProgress, downloadSpeed, downloadEta, isZip, onCancelDownload,
 }) => {
   // Descarga o preparación ZIP en curso — tiene prioridad sobre el resto
@@ -49,8 +53,8 @@ const StatusBar: React.FC<StatusBarProps> = ({
         ? `Preparando ZIP ${pctStr}`
         : `Descargando ${pctStr}${speedStr}${etaStr}`;
     return (
-      <div className={styles.statusBar}>
-        <div className={styles.downloadTrack}>
+      <div className={styles.statusBar} role="status" aria-live="polite">
+        <div className={styles.downloadTrack} aria-hidden="true">
           <div
             className={`${styles.downloadBar} ${!downloadSpeed && !isDone ? styles.downloadIndeterminate : ''}`}
             style={{ width: isDone ? '100%' : `${Math.max(downloadProgress, 2)}%` }}
@@ -77,22 +81,24 @@ const StatusBar: React.FC<StatusBarProps> = ({
   if (!isConnected) {
     label = 'Sin dispositivo';
   } else if (isLoading) {
-    label = 'Cargando...';
+    label = 'Cargando…';
   } else if (selectedFiles.length === 1) {
     const f = selectedFiles[0];
     const size = f.isFolder ? '' : ` — ${formatSize(f.size)}`;
-    label = `"${f.name}"${size}`;
+    label = `«${f.name}»${size}`;
   } else if (selectedFiles.length > 1) {
     const totalSize = selectedFiles.filter(f => !f.isFolder).reduce((s, f) => s + (f.size || 0), 0);
     const sizeStr = totalSize > 0 ? ` — ${formatSize(totalSize)} total` : '';
     label = `${selectedFiles.length} elementos seleccionados${sizeStr}`;
   } else {
-    label = `${fileCount} ${fileCount === 1 ? 'elemento' : 'elementos'}`;
+    label = totalCount != null && totalCount !== fileCount
+      ? `${fileCount} de ${plural(totalCount, 'elemento', 'elementos')}`
+      : plural(fileCount, 'elemento', 'elementos');
   }
 
   return (
-    <div className={styles.statusBar}>
-      <span className={styles.label}>{label}</span>
+    <div className={styles.statusBar} role="status" aria-live="polite">
+      <span className={`${styles.label} selectable`}>{label}</span>
     </div>
   );
 };

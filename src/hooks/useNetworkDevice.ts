@@ -2,7 +2,7 @@ import { useState, useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { NetworkClient } from '../services/network/NetworkClient';
 import { isSelfHosted, getSelfOrigin } from '../services/network/selfHosted';
-import type { FetchBlobOptions, FileItem, PathNode } from './useMTPDevice';
+import type { DeviceCapabilities, FetchBlobOptions, FileItem, PathNode } from './useMTPDevice';
 import { clearLruCache } from './useThumbnail';
 import { errorMessage, errorName } from '../utils/errors';
 
@@ -16,7 +16,11 @@ export type { FileItem, PathNode };
 
 export type AuthStatus = 'idle' | 'authenticating' | 'authenticated' | 'error';
 
+/** El servidor del teléfono todavía solo implementa listar, descargar y eliminar. */
+const NETWORK_CAPABILITIES: DeviceCapabilities = { rename: false, move: false, createFolder: false, delete: true };
+
 export interface NetworkDeviceState {
+  capabilities: DeviceCapabilities;
   // ── Descubrimiento (solo modo normal) ────────────────────────────────────
   devices: NetworkDevice[];
 
@@ -623,10 +627,7 @@ export function useNetworkDevice(options: UseNetworkDeviceOptions = {}): Network
     const nodeId = pathStrings.current.length - 1;
     await loadFolder(currentFolder, nodeId, 'Error al actualizar la carpeta');
 
-    if (deleteError) {
-      setError(errorMessage(deleteError) ?? 'Error al eliminar');
-      throw deleteError;
-    }
+    if (deleteError) throw deleteError; // AppLayout muestra el aviso
   }, [loadFolder, resetConnection]);
 
   const previewFile = useCallback(async (file: FileItem, opts?: FetchBlobOptions): Promise<Blob | null> => {
@@ -661,6 +662,7 @@ export function useNetworkDevice(options: UseNetworkDeviceOptions = {}): Network
   }, []);
 
   return {
+    capabilities: NETWORK_CAPABILITIES,
     devices,
     connectedDevice, authStatus, authError, token,
     authenticate, disconnect,

@@ -1,0 +1,97 @@
+/* Guía de conexión: los dos caminos (USB / WiFi) lado a lado. */
+
+.guide {
+  display: grid;
+  grid-template-columns: 1fr 1px 1fr;
+  gap: 28px;
+  width: 100%;
+  max-width: 640px;
+  text-align: left;
+}
+
+.single { grid-template-columns: 1fr; max-width: 340px; }
+
+.rule { background: var(--border-subtle); }
+
+.path {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.pathHeader {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+}
+
+.pathIcon {
+  display: flex;
+  color: var(--color-accent-blue);
+}
+
+.pathTitle {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.steps {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-left: 18px;
+  list-style: decimal;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+.steps li::marker { color: var(--text-tertiary); }
+
+.steps strong { color: var(--text-primary); font-weight: 500; }
+
+.primaryBtn,
+.secondaryBtn {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background-color 0.12s, filter 0.12s;
+}
+
+.primaryBtn {
+  border: none;
+  background: var(--color-accent-fill);
+  color: var(--text-on-accent);
+}
+.primaryBtn:hover:not(:disabled) { filter: brightness(1.1); }
+
+.secondaryBtn {
+  border: 1px solid var(--border-subtle);
+  background: var(--bg-button);
+  color: var(--text-primary);
+}
+.secondaryBtn:hover:not(:disabled) { background: var(--bg-button-hover); }
+
+.primaryBtn:disabled,
+.secondaryBtn:disabled { opacity: 0.45; cursor: not-allowed; }
+
+.unsupported {
+  font-size: 12px;
+  line-height: 1.45;
+  color: var(--color-warning);
+}
+
+@media (max-width: 720px) {
+  .guide { grid-template-columns: 1fr; gap: 20px; }
+  .rule { height: 1px; }
+}
