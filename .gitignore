@@ -8,6 +8,7 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+# Builds: web/dist y su copia en launcher/dist (para go:embed)
 dist
 dist-ssr
 *.local

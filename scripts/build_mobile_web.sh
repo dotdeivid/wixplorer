@@ -1,21 +1,20 @@
 #!/bin/bash
-# Fase 1: Pipeline React → Flutter assets
 # Compila la web y la copia como assets embebidos en la app Flutter.
-# Uso: ./build_mobile_web.sh
+# Uso: ./scripts/build_mobile_web.sh
 set -e
 
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-DIST_DIR="$ROOT_DIR/dist"
+WEB_DIR="$ROOT_DIR/web"
 ASSETS_WEB="$ROOT_DIR/mobile/assets/www"
 
-echo "==> 1/2  Compilando React..."
-cd "$ROOT_DIR"
+echo "==> 1/2  Compilando la web (web/)..."
+cd "$WEB_DIR"
 npm run build
 
-echo "==> 2/2  Copiando dist/ → mobile/assets/www/"
+echo "==> 2/2  Copiando web/dist/ → mobile/assets/www/"
 rm -rf "$ASSETS_WEB"
 mkdir -p "$ASSETS_WEB"
-cp -r "$DIST_DIR/." "$ASSETS_WEB/"
+cp -r "$WEB_DIR/dist/." "$ASSETS_WEB/"
 
 echo ""
 echo "✓ Listo. Archivos web embebidos en mobile/assets/www/"

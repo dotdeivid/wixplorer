@@ -8,12 +8,14 @@ Referencia rápida: qué hacer después de cada tipo de cambio para obtener los 
 
 ```
 wixplorer/
-  src/                  ← App React (UI web)
+  web/                  ← App React (UI web)
+  launcher/             ← Launcher Go (ejecutable de escritorio)
+    packaging/          ← Info.plist, íconos, versioninfo.json, LEEME.txt
   mobile/               ← App Flutter (servidor Android)
-  main.go               ← Launcher Go (ejecutable de escritorio)
   scripts/
     build_desktop.sh    ← Build completo para Mac + Windows
     build_mobile_web.sh ← Build React → assets Flutter
+  Makefile              ← Atajos para todo (`make help`)
 ```
 
 ### Dos modos de uso independientes
@@ -41,7 +43,7 @@ Navegador (React) ←→ WebUSB         (MTP por USB, directo desde el browser)
 | Acceso MTP (Android por USB) | WebUSB, directamente en el browser |
 | Servir la interfaz web en escritorio | Launcher Go (su única responsabilidad) |
 
-**Por qué un launcher en Go.** Embebe `dist/` con `go:embed`, levanta un servidor en `127.0.0.1` y abre el browser. Para el usuario final: un solo archivo, doble clic, sin instalar Node ni abrir una terminal, y funciona offline. Para desarrollo: cross-compilación a Windows desde Mac sin VM y binario Universal con `lipo`. El flujo diario no cambia — se sigue trabajando con Vite y Go solo entra al empaquetar.
+**Por qué un launcher en Go.** Embebe la web compilada con `go:embed` (una copia de `web/dist` en `launcher/dist`, porque `go:embed` no puede leer fuera del paquete), levanta un servidor en `127.0.0.1` y abre el browser. Para el usuario final: un solo archivo, doble clic, sin instalar Node ni abrir una terminal, y funciona offline. Para desarrollo: cross-compilación a Windows desde Mac sin VM y binario Universal con `lipo`. El flujo diario no cambia — se sigue trabajando con Vite y Go solo entra al empaquetar.
 
 **Alternativas descartadas:**
 - **Electron** — ~150 MB por el Chromium embebido, contra ~10–12 MB del binario Go.
@@ -57,7 +59,7 @@ Navegador (React) ←→ WebUSB         (MTP por USB, directo desde el browser)
 ### Servidor de desarrollo React
 
 ```bash
-npm run dev
+cd web && npm run dev     # o: make dev
 ```
 
 Abre `http://localhost:5173`. Hot reload automático. Ideal para trabajar en la UI sin compilar.
@@ -67,8 +69,7 @@ Abre `http://localhost:5173`. Hot reload automático. Ideal para trabajar en la 
 ### Probar el launcher Go localmente
 
 ```bash
-npm run build
-go run main.go
+make launcher             # compila web/, copia web/dist → launcher/dist y corre `go run .`
 ```
 
 Abre `http://localhost:3000` con la build de producción de React. Útil para verificar que el launcher funciona antes de generar el ejecutable final.
@@ -131,7 +132,7 @@ cd mobile && flutter build apk --release   # 2. Genera el APK con la web nueva
 
 ---
 
-## Escenario 4 — Cambié el launcher Go (`main.go`)
+## Escenario 4 — Cambié el launcher Go (`launcher/main.go`)
 
 ```bash
 ./scripts/build_desktop.sh
@@ -189,30 +190,31 @@ También se puede copiar el `.apk` al teléfono y abrirlo desde el explorador de
 
 ## Referencia de scripts
 
-| Script | Qué hace |
+Desde la raíz, `make help` lista todos los atajos.
+
+| Comando | Qué hace |
 |--------|----------|
-| `npm run dev` | Servidor de desarrollo React (hot reload) |
-| `npm run build` | Compila React → `dist/` |
-| `npm run lint` | ESLint sobre todo el proyecto web |
-| `npm test` | Tests unitarios web (vitest) |
-| `go run main.go` | Prueba el launcher Go sin compilar |
-| `go test .` | Tests del launcher Go (requiere `dist/`) |
-| `cd mobile && flutter test` | Tests unitarios Flutter |
-| `./scripts/build_mobile_web.sh` | Compila React y copia a `mobile/assets/www/` |
-| `./scripts/build_desktop.sh` | Build completo: React + Go Mac/Win + `.app` + ZIP |
+| `make dev` (`cd web && npm run dev`) | Servidor de desarrollo React (hot reload) |
+| `make build` (`cd web && npm run build`) | Compila React → `web/dist/` |
+| `make lint` / `make test` | ESLint y tests unitarios de la web (vitest) |
+| `make launcher` | Copia `web/dist` a `launcher/dist` y corre el launcher (`go run .`) |
+| `make test-launcher` | `go vet` + `go test` del launcher |
+| `make mobile-assets` (`./scripts/build_mobile_web.sh`) | Compila React y copia a `mobile/assets/www/` |
+| `make desktop` (`./scripts/build_desktop.sh`) | Build completo: React + Go Mac/Win + `.app` + ZIP |
+| `make mobile-test` | `flutter analyze` + `flutter test` |
+| `make apk` | Web actual + APK de release |
+| `make check` | Todos los checks (lo mismo que CI) |
 | `cd mobile && flutter run` | App Android en modo debug (hot reload) |
-| `cd mobile && flutter build apk --release` | APK de producción |
 | `cd mobile && flutter install` | Instala el APK en el teléfono conectado por USB |
 
 ---
 
 ## Checklist antes de distribuir
 
-- [ ] `npm run lint` y `npm test` sin errores
-- [ ] `go test .` y `cd mobile && flutter analyze && flutter test` sin errores
-- [ ] `npm run build` sin errores TypeScript
-- [ ] `./scripts/build_desktop.sh` genera `dist_bin/WiXplorer_v1.0.zip`
+- [ ] `make check` sin errores (lint, tests web, launcher y Flutter)
+- [ ] `make build` sin errores TypeScript
+- [ ] `make desktop` genera `dist_bin/WiXplorer_v1.0.zip`
 - [ ] Probar el `.app` localmente: doble clic → se abre el browser
-- [ ] `./scripts/build_mobile_web.sh && cd mobile && flutter build apk --release`
+- [ ] `make apk`
 - [ ] Instalar el APK en el teléfono y probar el flujo WiFi completo (iniciar servidor → URL → PIN → archivos)
-- [ ] Actualizar número de versión en `versioninfo.json` y `mobile/pubspec.yaml` si corresponde
+- [ ] Actualizar número de versión en `web/package.json`, `launcher/packaging/versioninfo.json` y `mobile/pubspec.yaml` si corresponde

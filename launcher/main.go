@@ -13,6 +13,10 @@ import (
 	"time"
 )
 
+// dist es la web compilada (web/dist). go:embed no puede apuntar fuera del
+// paquete, así que scripts/build_desktop.sh y el CI la copian a launcher/dist
+// antes de compilar.
+//
 //go:embed dist
 var distFiles embed.FS
 
