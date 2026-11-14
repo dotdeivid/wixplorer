@@ -59,6 +59,15 @@ void main() {
       expect(auth.isBlocked, isFalse);
     });
 
+    test('el bloqueo es por cliente: otra IP puede seguir autenticando', () {
+      for (var i = 0; i < 5; i++) {
+        auth.validatePin(wrongPin(), client: '192.168.0.66');
+      }
+      expect(auth.isBlockedFor('192.168.0.66'), isTrue);
+      expect(auth.isBlockedFor('192.168.0.10'), isFalse);
+      expect(auth.validatePin(auth.currentPin!, client: '192.168.0.10'), isNotNull);
+    });
+
     test('generate() levanta el bloqueo', () {
       for (var i = 0; i < 5; i++) {
         auth.validatePin(wrongPin());

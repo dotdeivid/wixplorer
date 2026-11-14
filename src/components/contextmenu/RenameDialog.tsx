@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './RenameDialog.module.css';
 import type { FileItem } from '../../hooks/useMTPDevice';
+import { MTP_MAX_STRING_LENGTH } from '../../services/mtp/MtpPacket';
 
 interface RenameDialogProps {
   file: FileItem;
@@ -47,6 +48,7 @@ const RenameDialog: React.FC<RenameDialogProps> = ({ file, onConfirm, onCancel }
           onChange={e => setName(e.target.value)}
           onKeyDown={handleKeyDown}
           spellCheck={false}
+          maxLength={MTP_MAX_STRING_LENGTH}
         />
         <div className={styles.buttons}>
           <button className={styles.btnCancel} onClick={onCancel}>Cancelar</button>

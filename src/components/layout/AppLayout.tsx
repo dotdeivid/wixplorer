@@ -51,9 +51,7 @@ const AppLayout: React.FC = () => {
 
   const activeNavigateIn  = isNetworkMode ? networkState.navigateIn  : mtpState.navigateIn;
   const activeNavigateOut = isNetworkMode ? networkState.navigateOut : mtpState.navigateOut;
-  const activeNavigateFwd = isNetworkMode
-    ? async () => { /* forward not implemented for network yet */ }
-    : mtpState.navigateForward;
+  const activeNavigateFwd = isNetworkMode ? networkState.navigateForward : mtpState.navigateForward;
   const activeNavigateToPathIndex = isNetworkMode
     ? networkState.navigateToPathIndex
     : mtpState.navigateToPathIndex;
@@ -181,8 +179,10 @@ const AppLayout: React.FC = () => {
       selectionAnchorRef.current = file;
       setSelectedFiles([file]);
     }
-    if (!file.isFolder) RecentsStorage.touch(file);
-  }, []);
+    // Recientes es solo para USB: en modo WiFi los ids son efímeros y
+    // después se verificarían como handles MTP de otro archivo.
+    if (!file.isFolder && !isNetworkMode) RecentsStorage.touch(file);
+  }, [isNetworkMode]);
 
   /* ── Activate (double-click) ────────────────────────────────────────── */
   const handleActivate = useCallback((file: FileItem) => {
@@ -527,7 +527,7 @@ const AppLayout: React.FC = () => {
           >
             {activeSection === 'recents' ? (
               <RecentsView
-                isConnected={activeIsConnected}
+                isConnected={mtpState.isConnected}
                 onVerify={mtpState.verifyFile}
                 onActivate={(file) => setSelectedFiles([file])}
               />

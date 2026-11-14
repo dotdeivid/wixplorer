@@ -4,7 +4,7 @@
  * Lazy-loads a thumbnail for a given image file using:
  *  1. IntersectionObserver — only fetches when the element enters the viewport
  *  2. In-memory LRU cache  — instant hit for recently viewed blobs (no async)
- *  3. IndexedDB (ThumbCache) — persistent cache across sessions
+ *  3. IndexedDB (ThumbCache) — persistent cache across sessions (USB only)
  *  4. Serial USB queue / parallel WiFi queue — prevents concurrent MTP requests
  *
  * Cancellation: each hook instance owns a generation counter.  When the file
@@ -159,10 +159,10 @@ export function useThumbnail({ file, getThumb, rootMargin = '80px', isNetwork = 
     }
 
     // 1. IndexedDB cache — async but no USB/network.
-    // Skipped in network mode: file.id is an ephemeral counter that restarts
-    // from 1 on each page load, so cross-session IDs collide with unrelated files.
-    if (!isNetwork) {
-      const cached = await ThumbCache.get(file.id);
+    // Skipped in network mode (the phone already caches thumbs on disk).
+    const cacheKey = isNetwork ? null : ThumbCache.keyFor(file);
+    if (cacheKey) {
+      const cached = await ThumbCache.get(cacheKey);
       if (cached) {
         lruSet(file.id, cached);
         const url = URL.createObjectURL(cached);
@@ -182,7 +182,7 @@ export function useThumbnail({ file, getThumb, rootMargin = '80px', isNetwork = 
         const blob = await getThumb(file.id);
         if (generationRef.current !== gen) return; // stale after async call
         if (blob && blob.size > 0) {
-          if (!isNetwork) await ThumbCache.set(file.id, blob);
+          if (cacheKey) await ThumbCache.set(cacheKey, blob);
           lruSet(file.id, blob);
           if (generationRef.current === gen) {
             const url = URL.createObjectURL(blob);
@@ -194,7 +194,7 @@ export function useThumbnail({ file, getThumb, rootMargin = '80px', isNetwork = 
         if (generationRef.current === gen) setLoading(false);
       }
     }, isNetwork);
-  }, [file.id, file.name, getThumb, isNetwork]);
+  }, [file, getThumb, isNetwork]);
 
   useEffect(() => {
     if (!isImageFile(file.name)) return;

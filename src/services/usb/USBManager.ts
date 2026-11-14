@@ -5,6 +5,18 @@ export interface ConnectedUSBDevice {
   name: string;
 }
 
+interface MtpEndpoints {
+  iface: USBInterface;
+  alt: USBAlternateInterface;
+  bulkIn: number;
+  bulkOut: number;
+}
+
+/** Copia exacta de los bytes de un DataView (respeta byteOffset/byteLength). */
+function dataViewToBuffer(view: DataView): ArrayBuffer {
+  return (view.buffer as ArrayBuffer).slice(view.byteOffset, view.byteOffset + view.byteLength);
+}
+
 export class USBManager {
   private device: USBDevice | null = null;
   private interfaceNumber: number = -1;
@@ -34,10 +46,16 @@ export class USBManager {
 
   /**
    * Finds the MTP interface and endpoint numbers on a device.
-   * MTP requires bulk-in + bulk-out + interrupt-in.
+   * MTP requires bulk-in + bulk-out + interrupt-in. Candidates are ranked so
+   * the ADB interface (vendor class 0xFF, subclass 0x42 — bulk only) is never
+   * picked when USB debugging is on:
+   *   1. Still Image class (0x06) — the standard MTP/PTP class
+   *   2. Vendor class with bulk + interrupt (Android MTP without PTP)
+   *   3. Any other interface with bulk + interrupt
    * Returns null if no MTP interface is found.
    */
-  private static findMTPEndpoints(device: USBDevice): { ifaceNumber: number; bulkIn: number; bulkOut: number } | null {
+  private static findMTPEndpoints(device: USBDevice): MtpEndpoints | null {
+    let best: { score: number; ep: MtpEndpoints } | null = null;
     try {
       for (const config of device.configurations ?? []) {
         for (const iface of config.interfaces) {
@@ -45,14 +63,25 @@ export class USBManager {
             const bIn  = alt.endpoints.find((e: USBEndpoint) => e.direction === 'in'  && e.type === 'bulk');
             const bOut = alt.endpoints.find((e: USBEndpoint) => e.direction === 'out' && e.type === 'bulk');
             const intIn = alt.endpoints.find((e: USBEndpoint) => e.direction === 'in' && e.type === 'interrupt');
-            if (bIn && bOut && intIn) {
-              return { ifaceNumber: iface.interfaceNumber, bulkIn: bIn.endpointNumber, bulkOut: bOut.endpointNumber };
+            if (!bIn || !bOut || !intIn) continue;
+            if (alt.interfaceClass === 0xFF && alt.interfaceSubclass === 0x42) continue; // ADB
+            const score = alt.interfaceClass === 0x06 ? 3 : alt.interfaceClass === 0xFF ? 2 : 1;
+            if (!best || score > best.score) {
+              best = { score, ep: { iface, alt, bulkIn: bIn.endpointNumber, bulkOut: bOut.endpointNumber } };
             }
           }
         }
       }
     } catch { /* ignore */ }
-    return null;
+    return best?.ep ?? null;
+  }
+
+  /** Claims the MTP interface and switches to the matching alternate setting if needed. */
+  private static async claimMTP(device: USBDevice, ep: MtpEndpoints): Promise<void> {
+    await device.claimInterface(ep.iface.interfaceNumber);
+    if (ep.iface.alternate?.alternateSetting !== ep.alt.alternateSetting) {
+      await device.selectAlternateInterface(ep.iface.interfaceNumber, ep.alt.alternateSetting);
+    }
   }
 
   /**
@@ -67,7 +96,8 @@ export class USBManager {
   private static async probeIsMTPActive(device: USBDevice): Promise<boolean> {
     const endpoints = USBManager.findMTPEndpoints(device);
     if (!endpoints) return false;
-    const { ifaceNumber, bulkIn, bulkOut } = endpoints;
+    const { bulkIn, bulkOut } = endpoints;
+    const ifaceNumber = endpoints.iface.interfaceNumber;
 
     const buildCmd = (code: number, tid: number, params: number[] = []) => {
       const buf = new Uint8Array(12 + params.length * 4);
@@ -92,12 +122,12 @@ export class USBManager {
 
     const responseCode = (r: USBInTransferResult | null): number => {
       if (!r || r.status !== 'ok' || !r.data || r.data.byteLength < 8) return 0;
-      return new DataView(r.data.buffer).getUint16(6, true);
+      return r.data.getUint16(6, true);
     };
 
     const packetType = (r: USBInTransferResult | null): number => {
       if (!r || r.status !== 'ok' || !r.data || r.data.byteLength < 6) return 0;
-      return new DataView(r.data.buffer).getUint16(4, true);
+      return r.data.getUint16(4, true);
     };
 
     const key = USBManager.deviceKey(device);
@@ -107,7 +137,7 @@ export class USBManager {
     try {
       await device.open();
       if (!device.configuration) await device.selectConfiguration(1);
-      await device.claimInterface(ifaceNumber);
+      await USBManager.claimMTP(device, endpoints);
 
       // ── OpenSession (0x1002) ────────────────────────────────────────
       await device.transferOut(bulkOut, buildCmd(0x1002, 1, [1]));
@@ -129,7 +159,7 @@ export class USBManager {
 
       let hasStorages = false;
       if (storageDataR && packetType(storageDataR) === 0x0002 /* data */) {
-        const count = new DataView(storageDataR.data!.buffer).getUint32(12, true);
+        const count = storageDataR.data!.getUint32(12, true);
         hasStorages = count > 0;
         await recv(800); // consume the following response packet
       }
@@ -204,49 +234,22 @@ export class USBManager {
       await device.selectConfiguration(1);
     }
 
-    let mtpInterface: USBInterface | null = null;
-
-    for (const config of device.configurations) {
-      for (const iface of config.interfaces) {
-        for (const alt of iface.alternates) {
-          const hasBulkIn  = alt.endpoints.some((e: USBEndpoint) => e.direction === 'in'  && e.type === 'bulk');
-          const hasBulkOut = alt.endpoints.some((e: USBEndpoint) => e.direction === 'out' && e.type === 'bulk');
-          if (hasBulkIn && hasBulkOut) {
-            mtpInterface = iface;
-            break;
-          }
-        }
-        if (mtpInterface) break;
-      }
-      if (mtpInterface) break;
-    }
-
-    if (!mtpInterface) {
+    const ep = USBManager.findMTPEndpoints(device);
+    if (!ep) {
       await device.close();
       throw new Error('MTP interface not found on this device');
     }
 
-    const alternate = mtpInterface.alternate;
-    if (!alternate) {
-      await device.close();
-      throw new Error('No alternate interface found');
+    try {
+      await USBManager.claimMTP(device, ep);
+    } catch (e) {
+      await device.close().catch(() => {});
+      throw e;
     }
 
-    this.interfaceNumber = mtpInterface.interfaceNumber;
-    await device.claimInterface(this.interfaceNumber);
-
-    for (const endpoint of alternate.endpoints) {
-      if (endpoint.type === 'bulk') {
-        if (endpoint.direction === 'in')  this.endpointIn  = endpoint.endpointNumber;
-        if (endpoint.direction === 'out') this.endpointOut = endpoint.endpointNumber;
-      }
-    }
-
-    if (this.endpointIn === -1 || this.endpointOut === -1) {
-      await device.releaseInterface(this.interfaceNumber);
-      await device.close();
-      throw new Error('MTP Bulk endpoints not found');
-    }
+    this.interfaceNumber = ep.iface.interfaceNumber;
+    this.endpointIn = ep.bulkIn;
+    this.endpointOut = ep.bulkOut;
   }
 
   public async disconnect(): Promise<void> {
@@ -279,7 +282,28 @@ export class USBManager {
       throw new Error(`Bulk transfer in failed: ${result.status}`);
     }
     if (!result.data) return new ArrayBuffer(0);
-    return result.data.buffer as ArrayBuffer;
+    return dataViewToBuffer(result.data);
+  }
+
+  /**
+   * MTP class request "Cancel Request" (0x64): le pide al dispositivo que
+   * aborte la transacción [transactionId] en curso. Best effort — algunos
+   * dispositivos no lo implementan.
+   */
+  public async cancelRequest(transactionId: number): Promise<void> {
+    if (!this.device?.opened) return;
+    const data = new DataView(new ArrayBuffer(6));
+    data.setUint16(0, 0x4001, true); // Cancellation code
+    data.setUint32(2, transactionId, true);
+    try {
+      await this.device.controlTransferOut({
+        requestType: 'class',
+        recipient: 'interface',
+        request: 0x64,
+        value: 0,
+        index: this.interfaceNumber,
+      }, data);
+    } catch { /* ignore */ }
   }
 
   /**

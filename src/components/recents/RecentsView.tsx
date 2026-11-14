@@ -52,7 +52,7 @@ interface RecentsViewProps {
    * Verify a file handle still exists on the device.
    * Returns FileItem if valid, null if not found.
    */
-  onVerify: (id: number) => Promise<FileItem | null>;
+  onVerify: (id: number, expectedName?: string) => Promise<FileItem | null>;
   /** Called after verification succeeds (e.g. download or preview) */
   onActivate: (file: FileItem) => void;
 }
@@ -77,14 +77,16 @@ const RecentsView: React.FC<RecentsViewProps> = ({ isConnected, onVerify, onActi
 
   const handleClick = useCallback(async (entry: RecentEntry) => {
     if (!isConnected) {
-      toast.warning('Conecta un dispositivo para acceder al archivo.');
+      toast.warning('Conecta un dispositivo por USB para acceder al archivo.');
       return;
     }
     if (verifying !== null) return;
 
     setVerifying(entry.id);
     try {
-      const file = await onVerify(entry.id);
+      // Los handles MTP se reasignan entre sesiones: si el handle existe pero
+      // ahora es otro archivo, cuenta como "ya no existe".
+      const file = await onVerify(entry.id, entry.name);
       if (!file) {
         // File no longer exists
         RecentsStorage.remove(entry.id);

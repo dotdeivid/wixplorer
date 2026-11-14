@@ -1,4 +1,4 @@
-import { errorName } from '../../utils/errors';
+import { errorMessage, errorName } from '../../utils/errors';
 
 export interface NetworkFileData {
   name: string;
@@ -52,6 +52,7 @@ export class NetworkClient {
   async listFiles(
     path: string,
     onChunk?: (accumulated: NetworkFileData[]) => void,
+    signal?: AbortSignal,
   ): Promise<NetworkFileData[]> {
     const res = await fetch(
       `${this.baseUrl}/api/files?path=${encodeURIComponent(path)}`,
@@ -61,6 +62,7 @@ export class NetworkClient {
           // Señalizar al servidor que soportamos NDJSON streaming
           Accept: 'application/x-ndjson, application/json',
         },
+        signal,
       }
     );
 
@@ -80,7 +82,12 @@ export class NetworkClient {
     return res.json();
   }
 
-  /** Lee un ReadableStream de NDJSON e invoca [onChunk] con la lista acumulada. */
+  /**
+   * Lee un ReadableStream de NDJSON e invoca [onChunk] con la lista acumulada.
+   * Si el servidor falla a mitad del listado manda una última línea
+   * `{"error": "..."}`: en ese caso se lanza en lugar de devolver una lista
+   * truncada como si estuviera completa.
+   */
   private async _readNdjson(
     body: ReadableStream<Uint8Array>,
     onChunk: (accumulated: NetworkFileData[]) => void,
@@ -98,21 +105,33 @@ export class NetworkClient {
       onChunk([...all]); // copia inmutable para React
     };
 
+    const parseLine = (line: string) => {
+      const trimmed = line.trim();
+      if (!trimmed) return;
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(trimmed);
+      } catch { return; /* ignorar líneas malformadas */ }
+      const serverError = (parsed as { error?: unknown }).error;
+      if (typeof serverError === 'string') throw new Error(serverError);
+      pending.push(parsed as NetworkFileData);
+    };
+
     while (true) {
       const { done, value } = await reader.read();
-      if (done) { flush(); break; }
+      if (done) {
+        // Última línea sin '\n' final
+        buffer += decoder.decode();
+        parseLine(buffer);
+        flush();
+        break;
+      }
 
       buffer += decoder.decode(value, { stream: true });
       const lines = buffer.split('\n');
       buffer = lines.pop()!; // última línea incompleta
 
-      for (const line of lines) {
-        const trimmed = line.trim();
-        if (!trimmed) continue;
-        try {
-          pending.push(JSON.parse(trimmed) as NetworkFileData);
-        } catch { /* ignorar líneas malformadas */ }
-      }
+      for (const line of lines) parseLine(line);
 
       // Notificar al cliente cada 50 ítems para no saturar React con re-renders
       if (pending.length >= 50) flush();
@@ -163,33 +182,55 @@ export class NetworkClient {
     }
 
     // ── 2. Obtener tamaño total con un Range probe mínimo ───────────────────
+    // Solo se pueden pedir chunks si el servidor soporta Range (responde 206).
     let totalSize = 0;
+    let supportsRange = false;
     try {
       const probe = await fetch(url, {
         headers: { ...this.authHeader, Range: 'bytes=0-0' },
         signal,
       });
+      if (probe.status === 401) {
+        await fsWritable?.abort().catch(() => {});
+        throw new Error('SESSION_EXPIRED');
+      }
       if (probe.status === 206) {
         const m = probe.headers.get('content-range')?.match(/\/(\d+)$/);
         if (m) totalSize = parseInt(m[1]);
-      } else if (probe.status === 200) {
-        totalSize = parseInt(probe.headers.get('content-length') || '0');
+        supportsRange = true;
       }
-    } catch { /* tamaño desconocido */ }
+      // Sin soporte de Range el servidor manda el archivo entero: cortar el
+      // body para no descargarlo dos veces.
+      await probe.body?.cancel().catch(() => {});
+    } catch (e) {
+      if (errorMessage(e) === 'SESSION_EXPIRED' || errorName(e) === 'AbortError') {
+        await fsWritable?.abort().catch(() => {});
+        throw e;
+      }
+      /* tamaño desconocido */
+    }
 
     // ── 3. Sin tamaño conocido → descarga directa (sin chunks) ─────────────
-    if (totalSize === 0) {
+    if (totalSize === 0 || !supportsRange) {
       if (fsWritable) {
-        const res = await fetch(url, { headers: this.authHeader, signal });
-        const reader = res.body!.getReader();
-        let offset = 0;
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          await fsWritable.write({ type: 'write', position: offset, data: value });
-          offset += value.byteLength;
+        try {
+          const res = await fetch(url, { headers: this.authHeader, signal });
+          if (res.status === 401) throw new Error('SESSION_EXPIRED');
+          if (!res.ok || !res.body) throw new Error(`file: HTTP ${res.status}`);
+          const reader = res.body.getReader();
+          let offset = 0;
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            await fsWritable.write({ type: 'write', position: offset, data: value });
+            offset += value.byteLength;
+          }
+          await fsWritable.close();
+        } catch (e) {
+          // abort() descarta el archivo parcial; close() lo dejaría truncado
+          await fsWritable.abort().catch(() => {});
+          throw e;
         }
-        await fsWritable.close();
       } else {
         const a = document.createElement('a');
         a.href = url; a.download = fileName;
@@ -241,15 +282,19 @@ export class NetworkClient {
      */
     const fetchChunkStreamed = async (
       i: number,
+      poolSignal: AbortSignal,
       onWrite?: (position: number, data: Uint8Array) => Promise<void>,
     ): Promise<{ offset: number; data: ArrayBuffer }> => {
       const start = i * chunkSize;
       const end   = Math.min(start + chunkSize - 1, totalSize - 1);
       const res = await fetch(url, {
         headers: { ...this.authHeader, Range: `bytes=${start}-${end}` },
-        signal,
+        signal: poolSignal,
       });
-      if (!res.ok) throw new Error(`chunk ${i}: HTTP ${res.status}`);
+      if (res.status === 401) throw new Error('SESSION_EXPIRED');
+      // Exigir 206: un 200 traería el archivo entero y se escribiría en el
+      // offset del chunk, corrompiendo el resultado.
+      if (res.status !== 206) throw new Error(`chunk ${i}: HTTP ${res.status}`);
 
       const reader = res.body!.getReader();
       const parts: Uint8Array[] = [];
@@ -288,21 +333,29 @@ export class NetworkClient {
      * Worker pool con concurrencia dinámica.
      * Despacha hasta `concurrency` chunks en paralelo; al completar cada uno
      * llama a maybeScale() y despacha el siguiente de la cola.
+     * Si un chunk falla (o el usuario cancela), aborta los que siguen en
+     * vuelo para que no sigan escribiendo.
      */
     const runPool = (
       onWrite?: (position: number, data: Uint8Array) => Promise<void>,
-    ): Promise<Array<{ offset: number; data: ArrayBuffer }>> =>
-      new Promise((resolve, reject) => {
+    ): Promise<Array<{ offset: number; data: ArrayBuffer }>> => {
+      const poolCtrl = new AbortController();
+      const onAbort = () => poolCtrl.abort();
+      signal?.addEventListener('abort', onAbort, { once: true });
+      if (signal?.aborted) poolCtrl.abort();
+
+      return new Promise<Array<{ offset: number; data: ArrayBuffer }>>((resolve, reject) => {
         const queue   = Array.from({ length: NUM_CHUNKS }, (_, i) => i);
         const results = new Array<{ offset: number; data: ArrayBuffer }>(NUM_CHUNKS);
         let active    = 0;
         let done      = 0;
+        let failed    = false;
 
         const dispatch = () => {
-          while (active < concurrency && queue.length > 0) {
+          while (!failed && active < concurrency && queue.length > 0) {
             const i = queue.shift()!;
             active++;
-            fetchChunkStreamed(i, onWrite)
+            fetchChunkStreamed(i, poolCtrl.signal, onWrite)
               .then(chunk => {
                 results[i] = chunk;
                 active--;
@@ -311,32 +364,37 @@ export class NetworkClient {
                 if (done === NUM_CHUNKS) resolve(results);
                 else dispatch();        // despachar siguiente
               })
-              .catch(reject);
+              .catch(err => {
+                if (failed) return;
+                failed = true;
+                // Si el usuario canceló, propagar su AbortError, no el de los demás chunks
+                poolCtrl.abort();
+                reject(signal?.aborted ? new DOMException('Download cancelled', 'AbortError') : err);
+              });
           }
         };
 
         dispatch();
-      });
+      }).finally(() => signal?.removeEventListener('abort', onAbort));
+    };
 
     // ── 4a. FSAA: escribir directo al disco ────────────────────────────────
+    // Si falla no se reintenta en RAM: el usuario ya eligió dónde guardar, y
+    // un segundo archivo vía <a download> sería confuso. Se descarta el
+    // parcial y se informa el error.
     if (fsWritable) {
       try {
         await runPool((pos, data) => fsWritable.write({ type: 'write', position: pos, data }));
         await fsWritable.close();
         onProgress?.(100, 0, 0);
         return;
-      } catch {
-        await fsWritable.close().catch(() => {});
-        received = 0;
-        smoothedSpeed = 0;
-        concurrency = 2;
+      } catch (e) {
+        await fsWritable.abort().catch(() => {});
+        throw e;
       }
     }
 
-    // ── 4b. Fallback: ensamblar Blob → <a> click ────────────────────────────
-    received     = 0;
-    smoothedSpeed = 0;
-    concurrency  = 2;
+    // ── 4b. Sin FSAA: ensamblar Blob → <a> click ────────────────────────────
     const chunkResults = await runPool();
     onProgress?.(100, 0, 0);
     const blob = new Blob(chunkResults.map(r => r.data));
@@ -354,13 +412,19 @@ export class NetworkClient {
    */
   async getFileBlob(
     path: string,
-    onProgress?: (pct: number, bytesPerSec: number) => void
+    onProgress?: (pct: number, bytesPerSec: number) => void,
+    opts?: { signal?: AbortSignal; maxBytes?: number },
   ): Promise<Blob> {
+    const headers: Record<string, string> = { ...this.authHeader };
+    // Para previews de texto alcanza con el principio del archivo
+    if (opts?.maxBytes && opts.maxBytes > 0) headers.Range = `bytes=0-${opts.maxBytes - 1}`;
     const res = await fetch(
       `${this.baseUrl}/api/file?path=${encodeURIComponent(path)}`,
-      { headers: this.authHeader }
+      { headers, signal: opts?.signal }
     );
     if (res.status === 401) throw new Error('SESSION_EXPIRED');
+    // 416: archivo vacío pedido con Range
+    if (res.status === 416) return new Blob([]);
     if (!res.ok) throw new Error(`file: HTTP ${res.status}`);
 
     if (!onProgress || !res.body) return res.blob();
@@ -395,11 +459,6 @@ export class NetworkClient {
     return new Blob(chunks as BlobPart[]);
   }
 
-  /**
-   * Devuelve una URL directa al archivo con el token embebido como query param.
-   * Permite usar la URL en <img src> y <video src> sin headers personalizados,
-   * habilitando carga progresiva nativa del navegador y Range requests para video.
-   */
   async deleteFiles(paths: string[]): Promise<void> {
     const res = await fetch(`${this.baseUrl}/api/file`, {
       method: 'DELETE',
@@ -407,12 +466,18 @@ export class NetworkClient {
       body: JSON.stringify({ paths }),
     });
     if (res.status === 401) throw new Error('SESSION_EXPIRED');
-    if (!res.ok) {
+    // 207 = borrado parcial: res.ok es true, pero algunos paths fallaron
+    if (!res.ok || res.status === 207) {
       const json = await res.json().catch(() => ({}));
       throw new Error(json.error || `HTTP ${res.status}`);
     }
   }
 
+  /**
+   * Devuelve una URL directa al archivo con el token embebido como query param.
+   * Permite usar la URL en <img src> y <video src> sin headers personalizados,
+   * habilitando carga progresiva nativa del navegador y Range requests para video.
+   */
   getFileUrl(path: string): string {
     return `${this.baseUrl}/api/file?path=${encodeURIComponent(path)}&token=${encodeURIComponent(this.token)}`;
   }

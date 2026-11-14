@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import styles from './RenameDialog.module.css'; // reuse same styles
+import { MTP_MAX_STRING_LENGTH } from '../../services/mtp/MtpPacket';
 
 interface NewFolderDialogProps {
   onConfirm: (name: string) => void;
@@ -39,6 +40,7 @@ const NewFolderDialog: React.FC<NewFolderDialogProps> = ({ onConfirm, onCancel }
           onChange={e => setName(e.target.value)}
           onKeyDown={handleKeyDown}
           spellCheck={false}
+          maxLength={MTP_MAX_STRING_LENGTH}
         />
         <div className={styles.buttons}>
           <button className={styles.btnCancel} onClick={onCancel}>Cancelar</button>

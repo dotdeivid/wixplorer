@@ -1,7 +1,8 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
+import { toast } from 'sonner';
 import { NetworkClient } from '../services/network/NetworkClient';
 import { isSelfHosted, getSelfOrigin } from '../services/network/selfHosted';
-import type { FileItem, PathNode } from './useMTPDevice';
+import type { FetchBlobOptions, FileItem, PathNode } from './useMTPDevice';
 import { clearLruCache } from './useThumbnail';
 import { errorMessage, errorName } from '../utils/errors';
 
@@ -39,13 +40,14 @@ export interface NetworkDeviceState {
   folderCache: Record<number, FileItem[]>;
   navigateIn: (folder: FileItem) => Promise<void>;
   navigateOut: () => Promise<void>;
+  navigateForward: () => Promise<void>;
   navigateToPathIndex: (index: number) => Promise<void>;
   navigateColumnFolder: (depth: number, folder: FileItem) => Promise<void>;
   navigateToFavoriteFolder: (folderName: string) => Promise<boolean>;
   downloadFile: (file: FileItem) => Promise<void>;
   cancelDownload: () => void;
   deleteFiles: (files: FileItem[]) => Promise<void>;
-  previewFile: (file: FileItem) => Promise<Blob | null>;
+  previewFile: (file: FileItem, opts?: FetchBlobOptions) => Promise<Blob | null>;
   getThumb: (id: number) => Promise<Blob | null>;
   getDirectUrl: (id: number) => string | null;
 
@@ -70,6 +72,12 @@ const MAX_CONSECUTIVE_FAILURES = 3;
 
 let _idCounter = 1;
 function nextId() { return _idCounter++; }
+
+/** Entrada del historial "adelante": nodos del breadcrumb + paths reales. */
+interface ForwardEntry {
+  nodes: PathNode[];
+  paths: string[];
+}
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -153,7 +161,7 @@ export function useNetworkDevice(): NetworkDeviceState {
   const [currentPath, setCurrentPath] = useState<PathNode[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [forwardStack, setForwardStack] = useState<PathNode[][]>([]);
+  const [forwardStack, setForwardStack] = useState<ForwardEntry[]>([]);
   const [folderCache, setFolderCache] = useState<Record<number, FileItem[]>>({});
 
   // Progreso de descarga
@@ -167,14 +175,18 @@ export function useNetworkDevice(): NetworkDeviceState {
   const pathById = useRef<Map<number, string>>(new Map());
   // Mapa path → id estable (mismo archivo/carpeta siempre obtiene el mismo id)
   const idByPath = useRef<Map<string, number>>(new Map());
-  // Cache de thumbnails (path → Blob) para evitar re-descargas
-  const thumbCache = useRef<Map<string, Blob>>(new Map());
   // Path strings paralelos a currentPath
   const pathStrings = useRef<string[]>([]);
   // Nodo raíz para navigateToFavoriteFolder
   const rootNodeRef = useRef<PathNode | null>(null);
   // Cliente HTTP activo
   const client = useRef<NetworkClient | null>(null);
+
+  // Navegación en curso: cada navegación nueva aborta la anterior y solo la
+  // última puede actualizar el estado (evita que una respuesta lenta de una
+  // carpeta anterior pise el listado actual).
+  const navGenRef = useRef(0);
+  const navAbortRef = useRef<AbortController | null>(null);
 
   // Ref para health check sin stale closure
   const connectedRef = useRef<NetworkDevice | null>(null);
@@ -223,7 +235,13 @@ export function useNetworkDevice(): NetworkDeviceState {
         const gracePeriod = result.wasTimeout ? MAX_CONSECUTIVE_FAILURES : 1;
         const fails = (failCountRef.current.get(connected.ip) ?? 0) + 1;
         failCountRef.current.set(connected.ip, fails);
-        if (fails >= gracePeriod && !isDownloadingRef.current) resetConnection();
+        if (fails >= gracePeriod && !isDownloadingRef.current) {
+          failCountRef.current.delete(connected.ip);
+          toast.warning(`Se perdió la conexión con ${connected.deviceName || connected.ip}`, {
+            description: 'El servidor del teléfono no responde. Volvé a conectarte cuando esté activo.',
+          });
+          resetConnection();
+        }
       }
     }, HEALTH_INTERVAL_MS);
 
@@ -244,9 +262,11 @@ export function useNetworkDevice(): NetworkDeviceState {
     setCurrentPath([]);
     setFolderCache({});
     setForwardStack([]);
+    navAbortRef.current?.abort();
+    navAbortRef.current = null;
+    navGenRef.current++;
     pathById.current.clear();
     idByPath.current.clear();
-    thumbCache.current.clear();
     clearLruCache();
     pathStrings.current = [];
     rootNodeRef.current = null;
@@ -286,12 +306,14 @@ export function useNetworkDevice(): NetworkDeviceState {
   const listPath = useCallback(async (
     path: string,
     onProgress?: (partial: FileItem[]) => void,
+    signal?: AbortSignal,
   ): Promise<FileItem[]> => {
     if (!client.current) return [];
     try {
       const data = await client.current.listFiles(
         path,
         onProgress ? (chunk) => onProgress(toFileItems(chunk)) : undefined,
+        signal,
       );
       return toFileItems(data);
     } catch (e) {
@@ -315,8 +337,9 @@ export function useNetworkDevice(): NetworkDeviceState {
       const json = await res.json();
 
       if (res.status === 429) {
+        const wait = typeof json.retryAfter === 'number' ? json.retryAfter : 30;
         setAuthStatus('error');
-        setAuthError('Demasiados intentos. Reiniciá el servidor en el teléfono.');
+        setAuthError(`Demasiados intentos. Esperá ${wait} segundos y volvé a intentar.`);
         return false;
       }
       if (!res.ok || !json.token) {
@@ -365,6 +388,41 @@ export function useNetworkDevice(): NetworkDeviceState {
 
   // ── Navegación ────────────────────────────────────────────────────────────
 
+  /** Inicia una navegación: aborta la anterior y devuelve su "ticket". */
+  const beginNav = useCallback(() => {
+    navAbortRef.current?.abort();
+    const ctrl = new AbortController();
+    navAbortRef.current = ctrl;
+    const gen = ++navGenRef.current;
+    return { signal: ctrl.signal, isCurrent: () => navGenRef.current === gen };
+  }, []);
+
+  /**
+   * Lista [path] con renderizado progresivo y lo guarda en el caché de
+   * columnas bajo [nodeId]. Si mientras tanto empezó otra navegación, el
+   * resultado se descarta.
+   */
+  const loadFolder = useCallback(async (path: string, nodeId: number, fallbackError: string) => {
+    const nav = beginNav();
+    setIsLoading(true);
+    setError(null);
+    try {
+      const items = await listPath(
+        path,
+        partial => { if (nav.isCurrent()) setFiles(partial); }, // renderizado progresivo
+        nav.signal,
+      );
+      if (!nav.isCurrent()) return;
+      setFiles(items); // resultado final ordenado
+      setFolderCache(prev => ({ ...prev, [nodeId]: items }));
+    } catch (e) {
+      if (!nav.isCurrent() || errorName(e) === 'AbortError') return;
+      setError(errorMessage(e) ?? fallbackError);
+    } finally {
+      if (nav.isCurrent()) setIsLoading(false);
+    }
+  }, [beginNav, listPath]);
+
   const navigateIn = useCallback(async (folder: FileItem) => {
     if (!folder.isFolder) return;
     const path = pathById.current.get(folder.id);
@@ -375,40 +433,27 @@ export function useNetworkDevice(): NetworkDeviceState {
     setForwardStack([]);
     setCurrentPath(prev => [...prev, { id: prev.length, name: folder.name }]);
     pathStrings.current = [...pathStrings.current, path];
-    setIsLoading(true);
-    setError(null);
-    try {
-      const items = await listPath(path, setFiles); // renderizado progresivo
-      setFiles(items); // resultado final ordenado
-      setFolderCache(prev => ({ ...prev, [newNodeId]: items }));
-    } catch (e) {
-      setError(errorMessage(e) ?? 'Error al cargar la carpeta');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [listPath]);
+    await loadFolder(path, newNodeId, 'Error al cargar la carpeta');
+  }, [loadFolder]);
 
   const navigateOut = useCallback(async () => {
     if (currentPath.length <= 1) return;
-    setForwardStack(prev => [...prev, currentPath]);
+    setForwardStack(prev => [...prev, { nodes: currentPath, paths: pathStrings.current }]);
     const newPath = currentPath.slice(0, -1);
     const newPathStrings = pathStrings.current.slice(0, -1);
     setCurrentPath(newPath);
     pathStrings.current = newPathStrings;
-    const targetPath = newPathStrings[newPathStrings.length - 1];
-    const targetNodeId = newPath.length - 1;
-    setIsLoading(true);
-    setError(null);
-    try {
-      const items = await listPath(targetPath, setFiles);
-      setFiles(items);
-      setFolderCache(prev => ({ ...prev, [targetNodeId]: items }));
-    } catch (e) {
-      setError(errorMessage(e) ?? 'Error al navegar');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentPath, listPath]);
+    await loadFolder(newPathStrings[newPathStrings.length - 1], newPath.length - 1, 'Error al navegar');
+  }, [currentPath, loadFolder]);
+
+  const navigateForward = useCallback(async () => {
+    const entry = forwardStack[forwardStack.length - 1];
+    if (!entry) return;
+    setForwardStack(prev => prev.slice(0, -1));
+    setCurrentPath(entry.nodes);
+    pathStrings.current = entry.paths;
+    await loadFolder(entry.paths[entry.paths.length - 1], entry.nodes.length - 1, 'Error al navegar');
+  }, [forwardStack, loadFolder]);
 
   const navigateToPathIndex = useCallback(async (index: number) => {
     if (index < 0 || index >= currentPath.length) return;
@@ -418,19 +463,8 @@ export function useNetworkDevice(): NetworkDeviceState {
     const newPathStrings = pathStrings.current.slice(0, index + 1);
     setCurrentPath(newPath);
     pathStrings.current = newPathStrings;
-    const targetPath = newPathStrings[newPathStrings.length - 1];
-    setIsLoading(true);
-    setError(null);
-    try {
-      const items = await listPath(targetPath, setFiles);
-      setFiles(items);
-      setFolderCache(prev => ({ ...prev, [index]: items }));
-    } catch (e) {
-      setError(errorMessage(e) ?? 'Error al navegar');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentPath, listPath]);
+    await loadFolder(newPathStrings[newPathStrings.length - 1], index, 'Error al navegar');
+  }, [currentPath, loadFolder]);
 
   /**
    * Column view: navega directamente a `folder` que está en la columna `depth`,
@@ -448,18 +482,8 @@ export function useNetworkDevice(): NetworkDeviceState {
     setCurrentPath(newPathNodes);
     pathStrings.current = newPathStrings;
     setForwardStack([]);
-    setIsLoading(true);
-    setError(null);
-    try {
-      const items = await listPath(path, setFiles);
-      setFiles(items);
-      setFolderCache(prev => ({ ...prev, [newDepth]: items }));
-    } catch (e) {
-      setError(errorMessage(e) ?? 'Error al cargar la carpeta');
-    } finally {
-      setIsLoading(false);
-    }
-  }, [currentPath, listPath]);
+    await loadFolder(path, newDepth, 'Error al cargar la carpeta');
+  }, [currentPath, loadFolder]);
 
   const navigateToFavoriteFolder = useCallback(async (folderName: string): Promise<boolean> => {
     if (!client.current || pathStrings.current.length === 0) return false;
@@ -467,10 +491,12 @@ export function useNetworkDevice(): NetworkDeviceState {
     if (!rootNode) return false;
 
     const rootPath = pathStrings.current[0];
+    const nav = beginNav();
     setIsLoading(true);
     setError(null);
     try {
-      const rootItems = await listPath(rootPath);
+      const rootItems = await listPath(rootPath, undefined, nav.signal);
+      if (!nav.isCurrent()) return false;
       const folder = rootItems.find(
         f => f.isFolder && f.name.toLowerCase() === folderName.toLowerCase()
       );
@@ -484,16 +510,17 @@ export function useNetworkDevice(): NetworkDeviceState {
       setCurrentPath([rootNode, folderNode]);
       setForwardStack([]);
 
-      const folderItems = await listPath(folderPath);
+      const folderItems = await listPath(folderPath, undefined, nav.signal);
+      if (!nav.isCurrent()) return false;
       setFiles(folderItems);
       setFolderCache({ 0: rootItems, 1: folderItems });
       return true;
     } catch {
       return false;
     } finally {
-      setIsLoading(false);
+      if (nav.isCurrent()) setIsLoading(false);
     }
-  }, [listPath]);
+  }, [beginNav, listPath]);
 
   // ── Descarga y preview ────────────────────────────────────────────────────
 
@@ -538,29 +565,36 @@ export function useNetworkDevice(): NetworkDeviceState {
     if (paths.length === 0) return;
     setError(null);
     setIsLoading(true);
+
+    let deleteError: unknown = null;
     try {
       await client.current.deleteFiles(paths);
-      // Refrescar la carpeta actual
-      const currentFolder = pathStrings.current[pathStrings.current.length - 1];
-      const nodeId = pathStrings.current.length - 1;
-      const items = await listPath(currentFolder);
-      setFiles(items);
-      setFolderCache(prev => ({ ...prev, [nodeId]: items }));
     } catch (e) {
-      if (errorMessage(e) === 'SESSION_EXPIRED') resetConnection(true);
-      else setError(errorMessage(e) ?? 'Error al eliminar');
-      throw e;
-    } finally {
-      setIsLoading(false);
+      deleteError = e;
     }
-  }, [listPath, resetConnection]);
+    if (errorMessage(deleteError) === 'SESSION_EXPIRED') {
+      setIsLoading(false);
+      resetConnection(true);
+      throw deleteError;
+    }
 
-  const previewFile = useCallback(async (file: FileItem): Promise<Blob | null> => {
+    // Refrescar la carpeta actual — también tras un borrado parcial
+    const currentFolder = pathStrings.current[pathStrings.current.length - 1];
+    const nodeId = pathStrings.current.length - 1;
+    await loadFolder(currentFolder, nodeId, 'Error al actualizar la carpeta');
+
+    if (deleteError) {
+      setError(errorMessage(deleteError) ?? 'Error al eliminar');
+      throw deleteError;
+    }
+  }, [loadFolder, resetConnection]);
+
+  const previewFile = useCallback(async (file: FileItem, opts?: FetchBlobOptions): Promise<Blob | null> => {
     if (file.isFolder || !client.current) return null;
     const path = pathById.current.get(file.id);
     if (!path) return null;
     try {
-      return await client.current.getFileBlob(path);
+      return await client.current.getFileBlob(path, undefined, opts);
     } catch {
       return null;
     }
@@ -578,18 +612,12 @@ export function useNetworkDevice(): NetworkDeviceState {
     return client.current.getFileUrl(path);
   }, []);
 
+  // El caché en memoria lo maneja useThumbnail (LRU acotado por id).
   const getThumb = useCallback(async (id: number): Promise<Blob | null> => {
     if (!client.current) return null;
     const path = pathById.current.get(id);
     if (!path) return null;
-
-    // Servir desde cache si ya se descargó
-    const cached = thumbCache.current.get(path);
-    if (cached) return cached;
-
-    const blob = await client.current.getThumbBlob(path);
-    if (blob) thumbCache.current.set(path, blob);
-    return blob;
+    return client.current.getThumbBlob(path);
   }, []);
 
   return {
@@ -600,7 +628,7 @@ export function useNetworkDevice(): NetworkDeviceState {
     files, currentPath, isLoading, error,
     canGoForward: forwardStack.length > 0,
     folderCache,
-    navigateIn, navigateOut, navigateToPathIndex, navigateColumnFolder, navigateToFavoriteFolder,
+    navigateIn, navigateOut, navigateForward, navigateToPathIndex, navigateColumnFolder, navigateToFavoriteFolder,
     downloadFile, cancelDownload, deleteFiles, previewFile, getThumb, getDirectUrl,
     downloadProgress, downloadSpeed, downloadEta,
   };

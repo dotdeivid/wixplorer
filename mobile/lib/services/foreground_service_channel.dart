@@ -7,6 +7,15 @@ import 'package:flutter/services.dart';
 class ForegroundServiceChannel {
   static const _channel = MethodChannel('com.wixplorer/foreground');
 
+  /// Registra [callback] para cuando Android detiene el servicio por su cuenta
+  /// (p.ej. límite de tiempo de dataSync en Android 15+).
+  static void setOnSystemStop(void Function() callback) {
+    if (!Platform.isAndroid) return;
+    _channel.setMethodCallHandler((call) async {
+      if (call.method == 'onSystemStop') callback();
+    });
+  }
+
   /// Inicia el foreground service. Muestra una notificación persistente con
   /// la dirección IP del servidor para que el usuario pueda abrir el navegador.
   static Future<void> start({required String ip, required int port}) async {

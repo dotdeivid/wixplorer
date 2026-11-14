@@ -4,7 +4,7 @@ import styles from './FileExplorer.module.css';
 import FileItemComponent, { FolderIcon, SmallFolderIcon } from './FileItem';
 import { getFileEmoji } from './fileEmoji';
 import FileListItem from './FileListItem';
-import type { FileItem, PathNode } from '../../hooks/useMTPDevice';
+import type { FetchBlobFn, FileItem, PathNode, StreamVideoFn } from '../../hooks/useMTPDevice';
 import type { ViewMode, GroupMode } from '../layout/AppLayout';
 import { useThumbnail, isImageFile } from '../../hooks/useThumbnail';
 
@@ -153,9 +153,9 @@ const GALLERY_MEDIA_EXTS = new Set([
 
 const GalleryPreview: React.FC<{
   file: FileItem;
-  onFetchBlob: (file: FileItem) => Promise<Blob | null>;
+  onFetchBlob: FetchBlobFn;
   getDirectUrl?: (file: FileItem) => string | null;
-  onStreamVideo?: (file: FileItem, signal: AbortSignal) => { url: string; cleanup: () => void } | null;
+  onStreamVideo?: StreamVideoFn;
 }> = ({ file, onFetchBlob, getDirectUrl, onStreamVideo }) => {
   const [mediaUrl, setMediaUrl] = React.useState<string | null>(null);
   const [loading, setLoading] = React.useState(false);
@@ -209,7 +209,7 @@ const GalleryPreview: React.FC<{
 
     // Streaming MSE para video MTP — inicia reproducción sin esperar descarga completa
     if (onStreamVideo && ['mp4','webm','mov','m4v','3gp'].includes(ext)) {
-      const stream = onStreamVideo(file, abortCtrl.signal);
+      const stream = onStreamVideo(file, abortCtrl.signal, () => videoRef.current?.currentTime ?? 0);
       if (stream) {
         streamCleanupRef.current = stream.cleanup;
         setMediaUrl(stream.url);
@@ -220,7 +220,7 @@ const GalleryPreview: React.FC<{
     // Fallback: descarga blob completo (modo USB/MTP para imágenes o sin MSE)
     let cancelled = false;
     setLoading(true);
-    onFetchBlob(file).then(blob => {
+    onFetchBlob(file, { signal: abortCtrl.signal }).then(blob => {
       if (cancelled || !blob) { setLoading(false); return; }
       const url = URL.createObjectURL(blob);
       blobUrlRef.current = url;
@@ -324,9 +324,9 @@ interface FileExplorerProps {
   onNavigateIn?: (file: FileItem) => void;
   onNavigateToPathIndex?: (index: number) => Promise<void>;
   onNavigateColumnFolder?: (depth: number, folder: FileItem) => Promise<void>;
-  onFetchBlob?: (file: FileItem) => Promise<Blob | null>;
+  onFetchBlob?: FetchBlobFn;
   getDirectUrl?: (file: FileItem) => string | null;
-  onStreamVideo?: (file: FileItem, signal: AbortSignal) => { url: string; cleanup: () => void } | null;
+  onStreamVideo?: StreamVideoFn;
   onDownload?: (file: FileItem) => void;
   onDragStart?: (files: FileItem[]) => void;
   onDropOnFolder?: (folder: FileItem) => void;

@@ -6,30 +6,36 @@ set -e
 ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 OUT="$ROOT_DIR/dist_bin"
 
-echo "==> 1/4  Compilando React..."
-cd "$ROOT_DIR"
-npm run build
-
-echo "==> 0/4  Limpiando dist_bin/..."
+echo "==> 1/6  Limpiando dist_bin/..."
 rm -rf "$OUT"
 mkdir -p "$OUT"
 
-echo "==> 2/4  Generando recursos Windows (ícono + metadata)..."
-~/go/bin/goversioninfo -icon="$ROOT_DIR/build/icon.ico" -o="$ROOT_DIR/resource.syso" "$ROOT_DIR/scripts/versioninfo.json"
+echo "==> 2/6  Compilando React..."
+cd "$ROOT_DIR"
+npm run build
 
-echo "==> 3/4  Binario macOS (Universal: arm64 + amd64)..."
-GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "$OUT/WiXplorer_mac_arm64" main.go
-GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "$OUT/WiXplorer_mac_amd64" main.go
+echo "==> 3/6  Generando recursos Windows (ícono + metadata)..."
+# El sufijo _windows_amd64 hace que Go enlace el .syso solo en ese target,
+# así el build de macOS no lo toma. Se compila el paquete (.) y no main.go:
+# con una lista de archivos Go ignora los .syso del directorio.
+# resource.syso (sin sufijo) es el nombre viejo: se enlazaría en todos los
+# targets y en Windows duplicaría los recursos.
+rm -f "$ROOT_DIR/resource.syso"
+~/go/bin/goversioninfo -64 -icon="$ROOT_DIR/build/icon.ico" -o="$ROOT_DIR/resource_windows_amd64.syso" "$ROOT_DIR/scripts/versioninfo.json"
+
+echo "==> 4/6  Binario macOS (Universal: arm64 + amd64)..."
+GOOS=darwin GOARCH=arm64 go build -ldflags="-s -w" -o "$OUT/WiXplorer_mac_arm64" .
+GOOS=darwin GOARCH=amd64 go build -ldflags="-s -w" -o "$OUT/WiXplorer_mac_amd64" .
 lipo -create -output "$OUT/WiXplorer_mac" \
   "$OUT/WiXplorer_mac_arm64" \
   "$OUT/WiXplorer_mac_amd64"
 rm "$OUT/WiXplorer_mac_arm64" "$OUT/WiXplorer_mac_amd64"
 
-echo "==> 4/4  Binario Windows (amd64)..."
+echo "==> 5/6  Binario Windows (amd64)..."
 GOOS=windows GOARCH=amd64 go build -ldflags="-s -w -H windowsgui" \
-  -o "$OUT/WiXplorer.exe" main.go
+  -o "$OUT/WiXplorer.exe" .
 
-echo "==> 4/4  Armando WiXplorer.app..."
+echo "==> 6/6  Armando WiXplorer.app y paquete de distribución..."
 APP="$OUT/WiXplorer.app"
 rm -rf "$APP"
 mkdir -p "$APP/Contents/MacOS"
@@ -46,7 +52,7 @@ codesign --deep --force --sign - "$APP" 2>/dev/null || true
 # ZIP para distribución (preserva permisos de ejecución)
 cd "$OUT" && zip -r --symlinks WiXplorer_mac.zip WiXplorer.app && cd "$ROOT_DIR"
 
-echo "==> 5/5  Empaquetando para distribución (pendrive / descarga)..."
+# Paquete para distribución (pendrive / descarga)
 PKG="$OUT/WiXplorer_v1.0"
 rm -rf "$PKG"
 mkdir -p "$PKG/Mac" "$PKG/Windows"

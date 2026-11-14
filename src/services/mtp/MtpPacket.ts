@@ -105,12 +105,19 @@ export class MtpPacket {
   }
 }
 
+/** Máximo de caracteres UTF-16 de un string MTP (255 contando el terminador). */
+export const MTP_MAX_STRING_LENGTH = 254;
+
 /**
  * Serializes a JS string into an MTP UTF-16LE string payload.
  * Format: 1-byte char count (including null terminator), then UTF-16LE chars, then null terminator.
  * If the string is empty, returns a 1-byte buffer with value 0.
+ * Throws if the string doesn't fit in the 1-byte count.
  */
 export function serializeMtpString(text: string): ArrayBuffer {
+  if (text.length > MTP_MAX_STRING_LENGTH) {
+    throw new Error(`El nombre es demasiado largo (máx. ${MTP_MAX_STRING_LENGTH} caracteres)`);
+  }
   if (!text) {
     const buf = new ArrayBuffer(1);
     new DataView(buf).setUint8(0, 0);

@@ -4,24 +4,26 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:device_info_plus/device_info_plus.dart';
+import 'package:fc_native_video_thumbnail/fc_native_video_thumbnail.dart';
 import 'package:flutter/foundation.dart' show compute, debugPrint;
 import 'package:flutter/services.dart' show AssetManifest, rootBundle;
 import 'package:flutter_image_compress/flutter_image_compress.dart';
 import 'package:image/image.dart' as img;
 import 'package:mime/mime.dart';
 import 'package:network_info_plus/network_info_plus.dart';
+import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shelf/shelf.dart';
 import 'package:shelf/shelf_io.dart' as shelf_io;
 import 'package:shelf_router/shelf_router.dart';
-import 'package:video_thumbnail/video_thumbnail.dart';
 import 'package:wakelock_plus/wakelock_plus.dart';
 
 import '../models/server_status.dart';
 import 'auth_service.dart';
 import 'file_service.dart';
 import 'foreground_service_channel.dart';
+import 'http_range.dart';
 
 // ── Top-level function para compute() ────────────────────────────────────────
 // Necesita ser top-level (no método de clase) para que compute() pueda
@@ -37,10 +39,15 @@ Uint8List _encodeJpegThumbnail(Uint8List srcBytes) {
 /// Gestiona el ciclo de vida del servidor HTTP.
 /// Expone un stream de [ServerState] para que la UI reaccione.
 class ServerService {
-  ServerService._();
+  ServerService._() {
+    // Si Android corta el foreground service, el servidor no puede seguir.
+    ForegroundServiceChannel.setOnSystemStop(() => stop());
+  }
   static final ServerService instance = ServerService._();
 
-  static const int _port = 7070;
+  // Puerto preferido; si está ocupado se prueban los siguientes.
+  static const int _basePort = 7070;
+  static const int _maxPortAttempts = 10;
   static const Duration _inactivityThreshold = Duration(minutes: 15);
 
   // ── Semáforo para generación de thumbnails ────────────────────────────────
@@ -50,6 +57,9 @@ class ServerService {
   final _thumbSlotQueue = <Completer<void>>[];
 
   HttpServer? _server;
+  // Se incrementa en cada stop(): un start() en curso detecta que fue
+  // cancelado comparando la generación que capturó al empezar.
+  int _generation = 0;
   String? _cachedDeviceName;
   Timer? _inactivityTimer;
 
@@ -59,6 +69,8 @@ class ServerService {
   // Directorio de caché de thumbnails en disco (temp del SO).
   Directory? _thumbCacheDir;
 
+  final _videoThumbnailer = FcNativeVideoThumbnail();
+
   final _stateController = StreamController<ServerState>.broadcast();
 
   Stream<ServerState> get stateStream => _stateController.stream;
@@ -66,50 +78,63 @@ class ServerService {
   ServerState get current => _current;
 
   Future<void> start() async {
-    if (_current.isRunning) return;
+    if (_current.isRunning || _current.isBusy) return;
+    final gen = _generation;
     _emit(const ServerState(status: ServerStatus.starting));
 
-    final granted = await _requestStoragePermissions();
-    if (!granted) {
-      _emit(const ServerState(
-        status: ServerStatus.error,
-        errorMessage: 'Permisos de almacenamiento denegados',
-      ));
-      return;
-    }
-
-    // Iniciar servicios + precargar assets en paralelo
-    await Future.wait([
-      FileService.instance.init(),
-      _preloadWebAssets(),
-      _initThumbCache(),
-    ]);
-    AuthService.instance.generate();
-    _cachedDeviceName ??= await _resolveDeviceName();
-
-    final ip = await _localIp();
-
     try {
+      final access = await _requestStoragePermissions();
+      if (gen != _generation) return; // stop() durante el arranque
+      if (access == _StorageAccess.denied) {
+        _emit(const ServerState(
+          status: ServerStatus.error,
+          errorMessage: 'Permisos de almacenamiento denegados',
+        ));
+        return;
+      }
+
+      // Iniciar servicios + precargar assets en paralelo
+      await Future.wait([
+        FileService.instance.init(),
+        _preloadWebAssets(),
+        _initThumbCache(),
+      ]);
+      AuthService.instance.generate();
+      _cachedDeviceName ??= await _resolveDeviceName();
+
+      final ip = await _localIp();
+      if (gen != _generation) return;
+
       final handler = const Pipeline()
           .addMiddleware(_corsMiddleware())
+          .addMiddleware(_gzipJsonMiddleware())
           .addMiddleware(_activityMiddleware())
           .addMiddleware(_authMiddleware())
           .addHandler(_buildRouter());
 
-      _server = await shelf_io.serve(handler, InternetAddress.anyIPv4, _port);
-      _server!.autoCompress = false; // No usar — interfiere con range requests de video
+      final server = await _bind(handler);
+      if (gen != _generation) {
+        await server.close(force: true);
+        return;
+      }
+      _server = server;
+      server.autoCompress = false; // No usar — interfiere con range requests de video
 
-      await ForegroundServiceChannel.start(ip: ip, port: _port);
+      await ForegroundServiceChannel.start(ip: ip, port: server.port);
       await WakelockPlus.enable();
 
       _emit(ServerState(
         status: ServerStatus.running,
         ip: ip,
-        port: _port,
+        port: server.port,
         pin: AuthService.instance.currentPin,
+        limitedAccess: access == _StorageAccess.mediaOnly,
       ));
       _resetInactivityTimer();
     } catch (e) {
+      if (gen != _generation) return;
+      await _server?.close(force: true);
+      _server = null;
       _emit(ServerState(
         status: ServerStatus.error,
         errorMessage: 'No se pudo iniciar el servidor: $e',
@@ -117,7 +142,21 @@ class ServerService {
     }
   }
 
+  /// Escucha en [_basePort] o, si está ocupado, en el siguiente libre.
+  Future<HttpServer> _bind(Handler handler) async {
+    SocketException? lastError;
+    for (var i = 0; i < _maxPortAttempts; i++) {
+      try {
+        return await shelf_io.serve(handler, InternetAddress.anyIPv4, _basePort + i);
+      } on SocketException catch (e) {
+        lastError = e;
+      }
+    }
+    throw lastError ?? const SocketException('No hay puertos libres');
+  }
+
   Future<void> stop() async {
+    _generation++;
     _inactivityTimer?.cancel();
     _inactivityTimer = null;
     await _server?.close(force: true);
@@ -173,6 +212,8 @@ class ServerService {
             }
           } catch (_) {}
         }
+      }, onError: (Object e) {
+        debugPrint('[WiXplorer] Error limpiando caché de thumbs: $e');
       });
     } catch (e) {
       debugPrint('[WiXplorer] No se pudo inicializar caché de thumbs: $e');
@@ -223,8 +264,9 @@ class ServerService {
     });
 
     router.post('/api/auth', (Request req) async {
-      if (AuthService.instance.isBlocked) {
-        return _json({'error': 'too_many_attempts'}, status: 429);
+      final client = _clientIp(req);
+      if (AuthService.instance.isBlockedFor(client)) {
+        return _tooManyAttempts();
       }
       final body = await req.readAsString();
       final Map<String, dynamic> json;
@@ -233,11 +275,12 @@ class ServerService {
       } catch (_) {
         return _json({'error': 'invalid_body'}, status: 400);
       }
-      final pin = json['pin'] as String?;
-      if (pin == null) return _json({'error': 'missing_pin'}, status: 400);
+      final pin = json['pin'];
+      if (pin is! String) return _json({'error': 'missing_pin'}, status: 400);
 
-      final token = AuthService.instance.validatePin(pin);
+      final token = AuthService.instance.validatePin(pin, client: client);
       if (token == null) {
+        if (AuthService.instance.isBlockedFor(client)) return _tooManyAttempts();
         return _json({'error': 'invalid_pin'}, status: 401);
       }
       return _json({'token': token});
@@ -275,16 +318,28 @@ class ServerService {
         // HttpResponse lo gestiona solo cuando el body es un Stream sin
         // content-length. Setearlo explícitamente lanza HttpException y la
         // conexión se cierra sin enviar ningún header (ERR_EMPTY_RESPONSE).
-        final ctrl = StreamController<List<int>>();
-        FileService.instance.streamFiles(path).listen(
+        //
+        // Si falla a mitad del listado se emite una última línea
+        // {"error": "..."} para que el cliente no tome la lista truncada
+        // como completa. Si el cliente corta la conexión, onCancel detiene
+        // los stat() pendientes.
+        late final StreamSubscription<FileItem> sub;
+        final ctrl = StreamController<List<int>>(
+          onCancel: () => sub.cancel(),
+        );
+        sub = FileService.instance.streamFiles(path).listen(
           (item) {
             if (!ctrl.isClosed) {
               ctrl.add(utf8.encode('${jsonEncode(item.toJson())}\n'));
             }
           },
-          onError: (e) {
+          onError: (Object e) {
             debugPrint('[WiXplorer] streamFiles error: $e');
-            if (!ctrl.isClosed) ctrl.close();
+            if (!ctrl.isClosed) {
+              final msg = e is FileSystemException ? e.message : 'Error al leer el directorio';
+              ctrl.add(utf8.encode('${jsonEncode({'error': msg})}\n'));
+              ctrl.close();
+            }
           },
           onDone: () { if (!ctrl.isClosed) ctrl.close(); },
           cancelOnError: true,
@@ -321,31 +376,30 @@ class ServerService {
         final mimeType = lookupMimeType(path) ?? 'application/octet-stream';
         final name = path.split('/').last;
         final fileLength = await file.length();
-        final rangeHeader = req.headers['range'];
 
-        if (rangeHeader != null && rangeHeader.startsWith('bytes=')) {
-          final rangePart = rangeHeader.substring(6);
-          final parts = rangePart.split('-');
-          final start = int.tryParse(parts[0]) ?? 0;
-          final end = (parts.length > 1 && parts[1].isNotEmpty)
-              ? (int.tryParse(parts[1]) ?? fileLength - 1)
-              : fileLength - 1;
-
-          final clampedStart = start.clamp(0, fileLength - 1);
-          final clampedEnd = end.clamp(clampedStart, fileLength - 1);
-          final length = clampedEnd - clampedStart + 1;
-
-          return Response(
-            206,
-            body: file.openRead(clampedStart, clampedEnd + 1),
-            headers: {
-              'content-type': mimeType,
-              'content-length': length.toString(),
-              'content-range': 'bytes $clampedStart-$clampedEnd/$fileLength',
-              'accept-ranges': 'bytes',
-              'content-disposition': 'inline; filename="${Uri.encodeComponent(name)}"',
-            },
-          );
+        switch (parseRange(req.headers['range'], fileLength)) {
+          case RangeNotSatisfiable():
+            return Response(
+              416,
+              headers: {
+                'content-range': 'bytes */$fileLength',
+                'accept-ranges': 'bytes',
+              },
+            );
+          case RangeSatisfiable(:final range):
+            return Response(
+              206,
+              body: file.openRead(range.start, range.end + 1),
+              headers: {
+                'content-type': mimeType,
+                'content-length': range.length.toString(),
+                'content-range': 'bytes ${range.start}-${range.end}/$fileLength',
+                'accept-ranges': 'bytes',
+                'content-disposition': 'inline; filename="${Uri.encodeComponent(name)}"',
+              },
+            );
+          case RangeIgnored():
+            break;
         }
 
         return Response.ok(
@@ -371,22 +425,30 @@ class ServerService {
       } catch (_) {
         return _json({'error': 'invalid_body'}, status: 400);
       }
-      final paths = (json['paths'] as List?)?.cast<String>();
-      if (paths == null || paths.isEmpty) {
+      final rawPaths = json['paths'];
+      if (rawPaths is! List || rawPaths.isEmpty || rawPaths.any((p) => p is! String)) {
         return _json({'error': 'missing paths'}, status: 400);
       }
-      final errors = <String>[];
+      final paths = rawPaths.cast<String>();
+      final deleted = <String>[];
+      final failed = <Map<String, String>>[];
       for (final path in paths) {
         try {
           await FileService.instance.deleteItem(path);
+          deleted.add(path);
         } on FileSystemException catch (e) {
-          errors.add(e.message);
+          failed.add({'path': path, 'error': e.message});
         }
       }
-      if (errors.isNotEmpty) {
-        return _json({'error': errors.join('; ')}, status: 403);
+      if (failed.isNotEmpty) {
+        // 207: algunos se borraron y otros no; 403 si no se borró ninguno.
+        return _json({
+          'error': failed.map((f) => f['error']).join('; '),
+          'deleted': deleted,
+          'failed': failed,
+        }, status: deleted.isEmpty ? 403 : 207);
       }
-      return _json({'ok': true});
+      return _json({'ok': true, 'deleted': deleted});
     });
 
     // Thumbnail con caché en disco + semáforo de concurrencia
@@ -493,13 +555,13 @@ class ServerService {
             );
           }
 
-          // Video: frame JPEG via VideoThumbnail → recomprimir a WebP
+          // Video: frame JPEG nativo → recomprimir a WebP
           Uint8List? frameData;
           try {
-            frameData = await VideoThumbnail.thumbnailData(
-              video: 'file://$path',
-              imageFormat: ImageFormat.JPEG,
-              maxWidth: 320,
+            frameData = await _videoThumbnailer.saveThumbnailToBytes(
+              srcFile: path,
+              width: 320,
+              height: 320,
               quality: 70,
             );
           } catch (_) {}
@@ -544,16 +606,30 @@ class ServerService {
     // Web UI — activos React embebidos. Sin auth, al final para no interceptar /api/*.
     router.get('/<path|.*>', (Request req, String path) {
       final assetKey = path.isEmpty ? 'assets/www/index.html' : 'assets/www/$path';
-      final bytes = _webAssets[assetKey] ?? _webAssets['assets/www/index.html'];
+      var bytes = _webAssets[assetKey];
+      var servedPath = path.isEmpty ? 'index.html' : path;
+
+      if (bytes == null) {
+        // Un archivo inexistente (p.ej. un .js de un build viejo) es 404:
+        // devolverle index.html con content-type de JS rompe la carga.
+        // Solo las rutas sin extensión caen al shell de la SPA.
+        if (path.startsWith('api/') || p.extension(path).isNotEmpty) {
+          return Response.notFound('Not found');
+        }
+        bytes = _webAssets['assets/www/index.html'];
+        servedPath = 'index.html';
+      }
 
       if (bytes == null) {
         return Response.notFound('WiXplorer web UI not found. Run build_mobile_web.sh first.');
       }
 
-      final mimeType = lookupMimeType(path) ?? 'text/html; charset=utf-8';
-      final cacheControl = path.isEmpty || path == 'index.html'
-          ? 'no-cache'
-          : 'public, max-age=31536000, immutable';
+      final mimeType = lookupMimeType(servedPath) ?? 'application/octet-stream';
+      // Solo los assets de Vite llevan hash en el nombre y se pueden cachear
+      // para siempre. index.html, sw.js, favicon.svg, etc. se revalidan.
+      final cacheControl = servedPath.startsWith('assets/')
+          ? 'public, max-age=31536000, immutable'
+          : 'no-cache';
 
       return Response.ok(
         Stream.value(bytes),
@@ -578,6 +654,36 @@ class ServerService {
         }
         final response = await inner(req);
         return response.change(headers: _corsHeaders());
+      };
+    };
+  }
+
+  /// Comprime con gzip las respuestas JSON de más de 512 bytes, solo si el
+  /// cliente lo acepta. No toca NDJSON (streaming) ni archivos.
+  Middleware _gzipJsonMiddleware() {
+    return (Handler inner) {
+      return (Request req) async {
+        final response = await inner(req);
+        final acceptsGzip = (req.headers['accept-encoding'] ?? '').contains('gzip');
+        final contentType = response.headers['content-type'] ?? '';
+        if (!acceptsGzip ||
+            !contentType.startsWith('application/json') ||
+            response.headers.containsKey('content-encoding')) {
+          return response;
+        }
+        final bytes = await response.read().expand((chunk) => chunk).toList();
+        if (bytes.length <= 512) {
+          return response.change(body: bytes);
+        }
+        final compressed = GZipCodec().encode(bytes);
+        return response.change(
+          body: compressed,
+          headers: {
+            'content-encoding': 'gzip',
+            'content-length': compressed.length.toString(),
+            'vary': 'accept-encoding',
+          },
+        );
       };
     };
   }
@@ -661,29 +767,27 @@ class ServerService {
         'access-control-expose-headers': 'content-range, accept-ranges, content-length',
       };
 
-  /// Serializa [data] a JSON y comprime con gzip si el payload supera 512 bytes.
+  /// Serializa [data] a JSON. La compresión la decide [_gzipJsonMiddleware].
   static Response _json(Object data, {int status = 200}) {
-    final jsonStr = jsonEncode(data);
-    final bytes = utf8.encode(jsonStr);
-
-    if (bytes.length > 512) {
-      final compressed = Uint8List.fromList(GZipCodec().encode(bytes));
-      return Response(
-        status,
-        body: Stream.value(compressed),
-        headers: {
-          'content-type': 'application/json; charset=utf-8',
-          'content-encoding': 'gzip',
-          'content-length': compressed.length.toString(),
-        },
-      );
-    }
-
     return Response(
       status,
-      body: jsonStr,
+      body: jsonEncode(data),
       headers: {'content-type': 'application/json; charset=utf-8'},
     );
+  }
+
+  static Response _tooManyAttempts() => _json(
+        {
+          'error': 'too_many_attempts',
+          'retryAfter': AuthService.instance.blockDuration.inSeconds,
+        },
+        status: 429,
+      );
+
+  /// IP del cliente según la conexión TCP (no hay proxies en el medio).
+  static String _clientIp(Request req) {
+    final info = req.context['shelf.io.connection_info'];
+    return info is HttpConnectionInfo ? info.remoteAddress.address : '';
   }
 
   Future<String> _localIp() async {
@@ -715,19 +819,42 @@ class ServerService {
   static String _capitalize(String s) =>
       s.isEmpty ? s : s[0].toUpperCase() + s.substring(1).toLowerCase();
 
-  Future<bool> _requestStoragePermissions() async {
-    if (!Platform.isAndroid) return true;
+  /// Pide los permisos de almacenamiento (y de notificaciones en Android 13+).
+  ///
+  /// En Android 11+ el acceso a todos los archivos (PDF, ZIP, APK, Download…)
+  /// requiere MANAGE_EXTERNAL_STORAGE, que se concede desde Ajustes. Si el
+  /// usuario lo rechaza, se sigue con los permisos de multimedia y el servidor
+  /// arranca en modo limitado (solo fotos, videos y audio).
+  Future<_StorageAccess> _requestStoragePermissions() async {
+    if (!Platform.isAndroid) return _StorageAccess.full;
 
-    final results = await [
-      Permission.photos,
-      Permission.videos,
-      Permission.audio,
-    ].request();
+    final sdk = (await DeviceInfoPlugin().androidInfo).version.sdkInt;
 
-    final anyGranted = results.values.any((s) => s.isGranted);
-    if (anyGranted) return true;
+    // Sin este permiso el foreground service corre, pero la notificación
+    // persistente no se muestra. El resultado no bloquea el arranque.
+    if (sdk >= 33) await Permission.notification.request();
 
-    return (await Permission.storage.request()).isGranted;
+    if (sdk >= 30) {
+      final manage = Permission.manageExternalStorage;
+      if (await manage.isGranted || (await manage.request()).isGranted) {
+        return _StorageAccess.full;
+      }
+    }
+
+    if (sdk >= 33) {
+      final results = await [
+        Permission.photos,
+        Permission.videos,
+        Permission.audio,
+      ].request();
+      return results.values.any((s) => s.isGranted)
+          ? _StorageAccess.mediaOnly
+          : _StorageAccess.denied;
+    }
+
+    if (!(await Permission.storage.request()).isGranted) return _StorageAccess.denied;
+    // Android ≤ 10 con READ_EXTERNAL_STORAGE ve todo; en 11–12 solo multimedia.
+    return sdk >= 30 ? _StorageAccess.mediaOnly : _StorageAccess.full;
   }
 
   void _emit(ServerState state) {
@@ -735,3 +862,6 @@ class ServerService {
     _stateController.add(state);
   }
 }
+
+/// Nivel de acceso al almacenamiento obtenido al iniciar el servidor.
+enum _StorageAccess { full, mediaOnly, denied }

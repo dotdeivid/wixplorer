@@ -1,19 +1,22 @@
 /**
  * ThumbCache — IndexedDB-backed thumbnail cache.
  *
- * Key   : objectHandle (number) — unique per MTP object
- * Value : { blob: Blob, ts: number }
+ * Key   : `${scope}|${name}|${size}|${dateModified}` — see keyFor().
+ *         The MTP object handle is NOT used: Android reassigns handles on
+ *         every session, so a handle-keyed cache would show another file's
+ *         thumbnail after reconnecting.
+ * Value : { key, blob, ts }
  *
- * TTL: 7 days. Stale entries are evicted lazily on read.
+ * TTL: 7 days. Stale entries are evicted on read and when the DB opens.
  */
 
 const DB_NAME = 'wixplorer_thumbs';
 const STORE   = 'thumbnails';
-const VERSION = 1;
+const VERSION = 2;
 const TTL_MS  = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 interface CacheEntry {
-  handle: number;
+  key: string;
   blob: Blob;
   ts: number;
 }
@@ -21,6 +24,19 @@ interface CacheEntry {
 class ThumbCacheService {
   private db: IDBDatabase | null = null;
   private opening: Promise<IDBDatabase> | null = null;
+  /** Identifica al dispositivo conectado; null = sin dispositivo → sin caché persistente. */
+  private scope: string | null = null;
+
+  /** Fija el dispositivo actual (p.ej. su número de serie USB). */
+  setScope(scope: string | null): void {
+    this.scope = scope;
+  }
+
+  /** Clave persistente de un archivo del dispositivo actual, o null si no hay scope. */
+  keyFor(file: { name: string; size: number; dateModified: string }): string | null {
+    if (!this.scope) return null;
+    return `${this.scope}|${file.name}|${file.size}|${file.dateModified}`;
+  }
 
   private open(): Promise<IDBDatabase> {
     if (this.db) return Promise.resolve(this.db);
@@ -29,10 +45,15 @@ class ThumbCacheService {
     this.opening = new Promise((resolve, reject) => {
       const req = indexedDB.open(DB_NAME, VERSION);
       req.onupgradeneeded = () => {
-        req.result.createObjectStore(STORE, { keyPath: 'handle' });
+        // v1 usaba el handle MTP como clave — descartar esas entradas.
+        if (req.result.objectStoreNames.contains(STORE)) {
+          req.result.deleteObjectStore(STORE);
+        }
+        req.result.createObjectStore(STORE, { keyPath: 'key' });
       };
       req.onsuccess = () => {
         this.db = req.result;
+        this.pruneExpired(req.result);
         resolve(req.result);
       };
       req.onerror = () => reject(req.error);
@@ -41,18 +62,18 @@ class ThumbCacheService {
     return this.opening;
   }
 
-  async get(handle: number): Promise<Blob | null> {
+  async get(key: string): Promise<Blob | null> {
     try {
       const db = await this.open();
       return new Promise((resolve) => {
         const tx = db.transaction(STORE, 'readonly');
-        const req = tx.objectStore(STORE).get(handle);
+        const req = tx.objectStore(STORE).get(key);
         req.onsuccess = () => {
           const entry: CacheEntry | undefined = req.result;
           if (!entry) { resolve(null); return; }
           // Evict stale entries
           if (Date.now() - entry.ts > TTL_MS) {
-            this.delete(handle);
+            this.delete(key);
             resolve(null);
             return;
           }
@@ -65,12 +86,12 @@ class ThumbCacheService {
     }
   }
 
-  async set(handle: number, blob: Blob): Promise<void> {
+  async set(key: string, blob: Blob): Promise<void> {
     try {
       const db = await this.open();
       return new Promise((resolve) => {
         const tx = db.transaction(STORE, 'readwrite');
-        tx.objectStore(STORE).put({ handle, blob, ts: Date.now() });
+        tx.objectStore(STORE).put({ key, blob, ts: Date.now() } satisfies CacheEntry);
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve(); // non-fatal
       });
@@ -91,11 +112,26 @@ class ThumbCacheService {
     } catch { /* ignore */ }
   }
 
-  private async delete(handle: number): Promise<void> {
+  private async delete(key: string): Promise<void> {
     try {
       const db = await this.open();
       const tx = db.transaction(STORE, 'readwrite');
-      tx.objectStore(STORE).delete(handle);
+      tx.objectStore(STORE).delete(key);
+    } catch { /* ignore */ }
+  }
+
+  /** Borra las entradas vencidas para que la base no crezca sin límite. */
+  private pruneExpired(db: IDBDatabase): void {
+    try {
+      const tx = db.transaction(STORE, 'readwrite');
+      const req = tx.objectStore(STORE).openCursor();
+      const cutoff = Date.now() - TTL_MS;
+      req.onsuccess = () => {
+        const cursor = req.result;
+        if (!cursor) return;
+        if ((cursor.value as CacheEntry).ts < cutoff) cursor.delete();
+        cursor.continue();
+      };
     } catch { /* ignore */ }
   }
 }

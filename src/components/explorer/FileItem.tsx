@@ -3,6 +3,7 @@ import styles from './FileItem.module.css';
 import type { FileItem as FileItemData } from '../../hooks/useMTPDevice';
 import { useThumbnail, isImageFile } from '../../hooks/useThumbnail';
 import { getFileEmoji } from './fileEmoji';
+import { MTP_MAX_STRING_LENGTH } from '../../services/mtp/MtpPacket';
 
 /* ─── macOS folder SVG ───────────────────────────────────────────────────── */
 export const FolderIcon = () => (
@@ -91,6 +92,7 @@ const InlineRenameInput: React.FC<{
       className={styles.renameInput}
       defaultValue={file.name}
       spellCheck={false}
+      maxLength={MTP_MAX_STRING_LENGTH}
       onClick={e => e.stopPropagation()}
       onDoubleClick={e => e.stopPropagation()}
       onContextMenu={e => e.stopPropagation()}
