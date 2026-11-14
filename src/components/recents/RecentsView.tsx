@@ -1,10 +1,10 @@
 import React, { useState, useCallback } from 'react';
 import { toast } from 'sonner';
-import { X } from 'lucide-react';
+import { AlertTriangle, Clock, X } from 'lucide-react';
 import styles from './RecentsView.module.css';
 import { RecentsStorage, type RecentEntry } from '../../services/recents/RecentsStorage';
 import type { FileItem } from '../../hooks/useMTPDevice';
-import { getFileEmoji } from '../explorer/fileEmoji';
+import FileTypeIcon from '../explorer/FileTypeIcon';
 
 /* ─── Helpers ────────────────────────────────────────────────────────────── */
 function formatSize(bytes: number): string {
@@ -71,7 +71,7 @@ const RecentsView: React.FC<RecentsViewProps> = ({ isConnected, onVerify, onActi
 
   const handleClick = useCallback(async (entry: RecentEntry) => {
     if (!isConnected) {
-      toast.warning('Conecta un dispositivo por USB para acceder al archivo.');
+      toast.warning('Conectá el teléfono por USB para abrir el archivo.');
       return;
     }
     if (verifying !== null) return;
@@ -94,7 +94,7 @@ const RecentsView: React.FC<RecentsViewProps> = ({ isConnected, onVerify, onActi
       RecentsStorage.touch(file); // update accessedAt
       onActivate(file);
     } catch {
-      toast.error('No se pudo verificar el archivo. Verifica la conexión.');
+      toast.error('No se pudo verificar el archivo. Revisá la conexión USB.');
     } finally {
       setVerifying(null);
     }
@@ -104,9 +104,9 @@ const RecentsView: React.FC<RecentsViewProps> = ({ isConnected, onVerify, onActi
     return (
       <div className={styles.container}>
         <div className={styles.empty}>
-          <div className={styles.emptyIcon}>🕐</div>
+          <Clock className={styles.emptyIcon} size={40} strokeWidth={1.2} aria-hidden="true" />
           <div className={styles.emptyText}>
-            Los archivos a los que accedas aparecerán aquí
+            Los archivos que abras por USB van a aparecer acá
           </div>
         </div>
       </div>
@@ -116,45 +116,51 @@ const RecentsView: React.FC<RecentsViewProps> = ({ isConnected, onVerify, onActi
   return (
     <div className={styles.container}>
       {!isConnected && (
-        <div className={styles.disconnectedBanner}>
-          ⚠️ Conecta tu dispositivo para acceder a los archivos recientes
+        <div className={styles.disconnectedBanner} role="status">
+          <AlertTriangle size={14} strokeWidth={1.8} aria-hidden="true" />
+          Conectá el teléfono por USB para abrir los archivos recientes
         </div>
       )}
 
-      <div className={styles.header}>Recientes</div>
+      <h2 className={styles.header} id="recents-title">Recientes</h2>
 
-      {entries.map(entry => {
-        const isVerifying = verifying === entry.id;
-        const emoji = getFileEmoji(entry.name);
-        return (
-          <div
-            key={entry.id}
-            className={styles.row}
-            onClick={() => handleClick(entry)}
-            style={{ opacity: isVerifying ? 0.55 : 1 }}
-          >
-            <span className={styles.rowIcon}>{emoji}</span>
-            <div className={styles.rowBody}>
-              <span className={styles.rowName} title={entry.name}>
-                {isVerifying ? `Verificando "${entry.name}"...` : entry.name}
-              </span>
-              <span className={styles.rowMeta}>
-                {formatSize(entry.size)}
-                {entry.dateModified ? ` · ${formatDate(entry.dateModified)}` : ''}
-                {' · '}
-                {formatAccessedAt(entry.accessedAt)}
-              </span>
-            </div>
-            <button
-              className={styles.removeBtn}
-              onClick={e => handleRemove(e, entry.id)}
-              title="Quitar de Recientes"
-            >
-              <X size={12} strokeWidth={2} />
-            </button>
-          </div>
-        );
-      })}
+      <ul className={styles.list} aria-labelledby="recents-title">
+        {entries.map(entry => {
+          const isVerifying = verifying === entry.id;
+          return (
+            <li key={entry.id} className={`${styles.row} ${isVerifying ? styles.verifying : ''}`}>
+              <button
+                type="button"
+                className={styles.rowMain}
+                onClick={() => handleClick(entry)}
+                aria-busy={isVerifying || undefined}
+              >
+                <span className={styles.rowIcon}><FileTypeIcon name={entry.name} size={22} /></span>
+                <span className={styles.rowBody}>
+                  <span className={styles.rowName} title={entry.name}>
+                    {isVerifying ? `Verificando «${entry.name}»…` : entry.name}
+                  </span>
+                  <span className={styles.rowMeta}>
+                    {formatSize(entry.size)}
+                    {entry.dateModified ? ` · ${formatDate(entry.dateModified)}` : ''}
+                    {' · '}
+                    {formatAccessedAt(entry.accessedAt)}
+                  </span>
+                </span>
+              </button>
+              <button
+                type="button"
+                className={styles.removeBtn}
+                onClick={e => handleRemove(e, entry.id)}
+                title="Quitar de Recientes"
+                aria-label={`Quitar ${entry.name} de Recientes`}
+              >
+                <X size={12} strokeWidth={2} aria-hidden="true" />
+              </button>
+            </li>
+          );
+        })}
+      </ul>
     </div>
   );
 };

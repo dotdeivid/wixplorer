@@ -1,0 +1,17 @@
+.facts {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 6px 16px;
+  margin-top: 8px;
+  font-size: 13px;
+  user-select: text;
+}
+
+.facts dt { color: var(--text-secondary); }
+.facts dd { color: var(--text-primary); }
+
+.link {
+  color: var(--color-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}

@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect, memo } from 'react';
 import styles from './FileListItem.module.css';
 import type { FileItem } from '../../hooks/useMTPDevice';
 import { SmallFolderIcon } from './FileItem';
-import { getFileEmoji } from './fileEmoji';
+import FileTypeIcon from './FileTypeIcon';
 import { useThumbnail, isImageFile } from '../../hooks/useThumbnail';
 import { MTP_MAX_STRING_LENGTH } from '../../services/mtp/MtpPacket';
 
@@ -20,6 +20,10 @@ interface FileListItemProps {
   isRenaming?: boolean;
   onRenameConfirm?: (newName: string) => void;
   onRenameCancel?: () => void;
+  /** 0 para el ítem que recibe el foco con Tab (roving tabindex), -1 para el resto. */
+  tabIndex?: number;
+  /** Está en el portapapeles para mover (se muestra atenuado). */
+  isCut?: boolean;
 }
 
 function formatSize(bytes: number): string {
@@ -100,7 +104,7 @@ const InlineRenameInput: React.FC<{
 const FileListItem = memo<FileListItemProps>(({
   file, isSelected, onSelect, onActivate, onContextMenu,
   onDragStart, onDragOver, onDrop, getThumb, isNetworkMode,
-  isRenaming, onRenameConfirm, onRenameCancel,
+  isRenaming, onRenameConfirm, onRenameCancel, tabIndex = -1, isCut,
 }) => {
   const [isDropTarget, setIsDropTarget] = useState(false);
   const showThumb = !file.isFolder && isImageFile(file.name) && !!getThumb;
@@ -108,12 +112,16 @@ const FileListItem = memo<FileListItemProps>(({
 
   return (
     <div
-      className={`${styles.row} ${isSelected ? styles.selected : ''} ${isDropTarget ? styles.dropTarget : ''}`}
+      className={`${styles.row} ${isSelected ? styles.selected : ''} ${isDropTarget ? styles.dropTarget : ''} ${isCut ? styles.cut : ''}`}
       data-file-id={file.id}
+      role="option"
+      aria-selected={isSelected}
+      aria-label={file.isFolder ? `${file.name}, carpeta` : file.name}
+      tabIndex={tabIndex}
       onClick={e => { if (isRenaming) return; e.stopPropagation(); onSelect(e); }}
       onDoubleClick={() => { if (isRenaming) return; onActivate(); }}
       onContextMenu={e => { if (isRenaming) return; e.stopPropagation(); onContextMenu(e); }}
-      draggable={!isRenaming}
+      draggable={!isRenaming && !!onDragStart}
       onDragStart={isRenaming ? undefined : onDragStart}
       onDragOver={file.isFolder ? (e) => { e.preventDefault(); setIsDropTarget(true); onDragOver?.(e); } : undefined}
       onDragLeave={file.isFolder ? () => setIsDropTarget(false) : undefined}
@@ -124,11 +132,11 @@ const FileListItem = memo<FileListItemProps>(({
           ? <div className={styles.folderIconSmall}><SmallFolderIcon /></div>
           : showThumb && thumbUrl
             ? <img src={thumbUrl} className={styles.iconThumb} alt="" />
-            : <span className={styles.iconSmall}>{getFileEmoji(file.name)}</span>
+            : <FileTypeIcon name={file.name} size={16} className={styles.iconSmall} />
         }
         {isRenaming && onRenameConfirm && onRenameCancel
           ? <InlineRenameInput file={file} onConfirm={onRenameConfirm} onCancel={onRenameCancel} />
-          : <span className={styles.nameText}>{file.name}</span>
+          : <span className={styles.nameText} title={file.name}>{file.name}</span>
         }
       </div>
       <div className={styles.cell}>{formatDate(file.dateModified)}</div>

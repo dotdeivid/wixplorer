@@ -1,7 +1,8 @@
-import React, { useRef, useState, useEffect } from 'react';
+import React, { useRef, useState, useEffect, useId } from 'react';
 import styles from './PinDialog.module.css';
 import type { NetworkDevice } from '../../hooks/useNetworkDevice';
-import { X } from 'lucide-react';
+import { Smartphone, X } from 'lucide-react';
+import { useDialogFocus } from '../../hooks/useDialogFocus';
 
 interface PinDialogProps {
   device: NetworkDevice;
@@ -25,10 +26,15 @@ const PinDialog: React.FC<PinDialogProps> = ({
   const [digits, setDigits] = useState<string[]>(Array(PIN_LENGTH).fill(''));
   const [shake, setShake] = useState(false);
   const inputRefs = useRef<(HTMLInputElement | null)[]>([]);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const firstInputRef = useRef<HTMLInputElement | null>(null);
+  const titleId = useId();
+  const descId = useId();
+  const errorId = useId();
 
-  useEffect(() => {
-    inputRefs.current[0]?.focus();
-  }, []);
+  // Foco atrapado en el diálogo; Escape cierra salvo en modo auto-hospedado
+  // (ahí no hay otra forma de reabrirlo sin recargar).
+  useDialogFocus(dialogRef, { initialFocus: firstInputRef, onEscape: selfHosted ? undefined : onCancel });
 
   // Ante un nuevo error: limpiar los dígitos y sacudir. Se ajusta el estado
   // durante el render (patrón recomendado por React) en lugar de en un effect.
@@ -77,8 +83,6 @@ const PinDialog: React.FC<PinDialogProps> = ({
       } else if (index > 0) {
         inputRefs.current[index - 1]?.focus();
       }
-    } else if (e.key === 'Escape' && !selfHosted) {
-      onCancel();
     }
   };
 
@@ -99,27 +103,42 @@ const PinDialog: React.FC<PinDialogProps> = ({
 
   return (
     <div className={styles.backdrop} onClick={handleBackdropClick}>
-      <div className={styles.dialog}>
+      <div
+        ref={dialogRef}
+        className={styles.dialog}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        aria-describedby={descId}
+      >
         {/* X para cerrar — oculto en modo self-hosted (sin recarga no se puede reabrir) */}
         {!selfHosted && (
-          <button className={styles.closeBtn} onClick={onCancel} disabled={isAuthenticating}>
+          <button className={styles.closeBtn} onClick={onCancel} disabled={isAuthenticating} aria-label="Cerrar">
             <X size={14} strokeWidth={2} />
           </button>
         )}
 
         <div className={styles.header}>
-          <div className={styles.deviceIcon}>📱</div>
+          <div className={styles.deviceIcon}><Smartphone size={26} strokeWidth={1.5} aria-hidden="true" /></div>
           <div>
-            <div className={styles.title}>Conectar con {device.deviceName}</div>
-            <div className={styles.subtitle}>Ingresá el PIN que aparece en la pantalla del teléfono</div>
+            <h2 id={titleId} className={styles.title}>Conectar con {device.deviceName}</h2>
+            <p id={descId} className={styles.subtitle}>Ingresá el PIN que aparece en la pantalla del teléfono</p>
           </div>
         </div>
 
-        <div className={`${styles.pinRow} ${shake ? styles.shake : ''}`} onPaste={handlePaste}>
+        <div
+          className={`${styles.pinRow} ${shake ? styles.shake : ''}`}
+          onPaste={handlePaste}
+          role="group"
+          aria-label="PIN de 6 dígitos"
+        >
           {digits.map((d, i) => (
             <input
               key={i}
-              ref={el => { inputRefs.current[i] = el; }}
+              ref={el => { inputRefs.current[i] = el; if (i === 0) firstInputRef.current = el; }}
+              aria-label={`Dígito ${i + 1} de ${PIN_LENGTH}`}
+              aria-invalid={authError ? 'true' : undefined}
+              aria-describedby={authError ? errorId : undefined}
               className={`${styles.pinInput} ${authError ? styles.error : ''}`}
               type="text"
               inputMode="numeric"
@@ -135,11 +154,11 @@ const PinDialog: React.FC<PinDialogProps> = ({
         </div>
 
         {isAuthenticating && (
-          <div className={styles.connectingMsg}>Conectando…</div>
+          <div className={styles.connectingMsg} role="status">Conectando…</div>
         )}
 
         {authError && !isAuthenticating && (
-          <div className={styles.errorMsg}>{authError}</div>
+          <div id={errorId} className={styles.errorMsg} role="alert">{authError}</div>
         )}
       </div>
     </div>

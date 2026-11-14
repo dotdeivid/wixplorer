@@ -12,15 +12,53 @@ body {
   color: var(--text-primary);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  user-select: none;
 }
 
-button { font-family: inherit; font-size: inherit; }
+/* Como en Finder, la interfaz no se selecciona al arrastrar; el texto que
+   el usuario puede querer copiar (nombres en el panel, mensajes de error,
+   barra de estado) se marca con .selectable o lo habilita su componente. */
+#root { user-select: none; }
+input, textarea, .selectable { user-select: text; }
+
+button { font-family: inherit; font-size: inherit; color: inherit; }
 ul, ol { list-style: none; }
 a { text-decoration: none; color: inherit; }
 input { font-family: inherit; }
 
-::-webkit-scrollbar { width: 8px; }
+::selection { background: rgba(10, 132, 255, 0.4); }
+
+/* Anillo de foco solo para teclado */
+:focus { outline: none; }
+:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+  border-radius: 6px;
+}
+
+/* Solo para lectores de pantalla */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.18); border-radius: 4px; }
-::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.28); }
+::-webkit-scrollbar-thumb { background: rgba(var(--fg-rgb), 0.18); border-radius: 4px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(var(--fg-rgb), 0.28); }
+
+/* Movimiento reducido: sin temblores, spinners girando ni shimmer */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

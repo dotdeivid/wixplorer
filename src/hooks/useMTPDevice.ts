@@ -20,6 +20,21 @@ export interface PathNode {
   name: string;
 }
 
+/**
+ * Qué operaciones de escritura soporta el modo de conexión activo. La UI
+ * deshabilita (con el motivo) lo que no se puede hacer, en lugar de ofrecer
+ * acciones que fallarían.
+ */
+export interface DeviceCapabilities {
+  rename: boolean;
+  move: boolean;
+  createFolder: boolean;
+  delete: boolean;
+}
+
+/** MTP (USB) soporta todas las operaciones. */
+const MTP_CAPABILITIES: DeviceCapabilities = { rename: true, move: true, createFolder: true, delete: true };
+
 export interface AvailableDevice {
   usbDevice: USBDevice;
   name: string;
@@ -87,6 +102,25 @@ function friendlyDownloadError(err: unknown): string {
   }
 
   return errorMessage(err) || 'Error al descargar';
+}
+
+/**
+ * Mensaje para un error al conectar por USB. null si el usuario cerró el
+ * selector sin elegir nada (no es un error).
+ */
+function friendlyConnectError(err: unknown): string | null {
+  const name = errorName(err) ?? '';
+  const msg = errorMessage(err) ?? '';
+  if (name === 'NotFoundError' || /no device selected/i.test(msg)) return null;
+  if (name === 'SecurityError' || /access denied|unable to claim|already in use/i.test(msg)) {
+    return 'No se pudo abrir el teléfono: otra app lo está usando. Cerrá Android File Transfer, ADB u otras pestañas de WiXplorer y volvé a intentar.';
+  }
+  if (/MTP interface not found/i.test(msg)) {
+    return 'El teléfono no está en modo "Transferencia de archivos". Elegilo en la notificación de USB y volvé a intentar.';
+  }
+  // Los mensajes propios (p.ej. almacenamiento no encontrado) ya están en español
+  if (msg.startsWith('No se')) return msg;
+  return 'No se pudo conectar con el teléfono. Desconectá el cable, volvé a conectarlo y probá de nuevo.';
 }
 
 export function useMTPDevice() {
@@ -200,7 +234,7 @@ export function useMTPDevice() {
       setFolderCache(prev => ({ ...prev, [parentId]: validFiles }));
     } catch (err) {
       console.error(err);
-      setError(errorMessage(err) || 'Failed to refresh files');
+      setError('No se pudo leer la carpeta. Revisá que el teléfono siga conectado y desbloqueado.');
     } finally {
       setIsLoading(false);
     }
@@ -229,7 +263,7 @@ export function useMTPDevice() {
       setCurrentPath([{ id: 0xFFFFFFFF, name: 'Inicio' }]);
       await refreshFiles(storages[0], 0xFFFFFFFF);
     } else {
-      const msg = 'No se encontró almacenamiento. Asegúrate de que la pantalla esté desbloqueada y el modo sea "Transferencia de archivos".';
+      const msg = 'No se encontró almacenamiento. Desbloqueá la pantalla del teléfono y elegí "Transferencia de archivos" en la notificación de USB.';
       setError(msg);
       throw new Error(msg);
     }
@@ -244,7 +278,7 @@ export function useMTPDevice() {
       await afterConnect();
       scanDevices();
     } catch (err) {
-      setError(errorMessage(err) || 'Connection failed');
+      setError(friendlyConnectError(err));
       try { await client.disconnect(); } catch { /* ignore */ }
       setIsConnected(false); setDeviceName(''); setFiles([]); setCurrentPath([]); setForwardStack([]);
     } finally {
@@ -260,7 +294,7 @@ export function useMTPDevice() {
       await client.connectTo(device.usbDevice);
       await afterConnect();
     } catch (err) {
-      setError(errorMessage(err) || 'Connection failed');
+      setError(friendlyConnectError(err));
       try { await client.disconnect(); } catch { /* ignore */ }
       setIsConnected(false); setDeviceName(''); setFiles([]); setCurrentPath([]); setForwardStack([]);
     } finally {
@@ -421,9 +455,7 @@ export function useMTPDevice() {
       await navigator.usb?.requestDevice({ filters: [] });
       await scanDevices();
     } catch (e) {
-      if (errorName(e) !== 'NotFoundError') {
-        setError(errorMessage(e) || 'Cancelled');
-      }
+      setError(friendlyConnectError(e));
     }
   }, [scanDevices]);
 
@@ -512,9 +544,7 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err) {
-      setError(errorMessage(err) || 'Error al eliminar');
-      throw err;
+      // Los errores se propagan: AppLayout muestra el aviso
     } finally {
       setIsLoading(false);
     }
@@ -539,9 +569,7 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err) {
-      setError(errorMessage(err) || 'Error al mover archivos');
-      throw err;
+      // Los errores se propagan: AppLayout muestra el aviso
     } finally {
       setIsLoading(false);
     }
@@ -561,9 +589,7 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err) {
-      setError(errorMessage(err) || 'Error al renombrar');
-      throw err;
+      // Los errores se propagan: AppLayout muestra el aviso
     } finally {
       setIsLoading(false);
     }
@@ -583,9 +609,7 @@ export function useMTPDevice() {
         return next;
       });
       await refreshFiles(currentStorageId.current, parentId);
-    } catch (err) {
-      setError(errorMessage(err) || 'Error al crear carpeta');
-      throw err;
+      // Los errores se propagan: AppLayout muestra el aviso
     } finally {
       setIsLoading(false);
     }
@@ -627,6 +651,7 @@ export function useMTPDevice() {
   }, [isConnected, refreshFiles]);
 
   return {
+    capabilities: MTP_CAPABILITIES,
     isConnected,
     deviceName,
     files,

@@ -1,64 +1,146 @@
+/* ============================================================
+   WiXplorer — tokens de diseño, basados en Finder de macOS.
+
+   Layout:
+   - bg-main: el fondo unificado (toolbar + contenido + borde exterior)
+   - bg-sidebar: el sidebar flotante
+
+   Como en macOS, las superficies translúcidas (hover, botones, bordes,
+   texto secundario) son el color de primer plano con transparencia:
+   blanco en modo oscuro y negro en modo claro. Se escriben como
+   rgba(var(--fg-rgb), α) y se invierten solas al cambiar de tema.
+
+   Los valores de texto y acento cumplen WCAG AA (≥4.5:1) sobre los
+   fondos de cada tema.
+   ============================================================ */
+
 :root {
-  /* ============================================================
-     macOS Finder Dark Mode — layout correcto:
-     - bg-main: el fondo unificado (toolbar + contenido + borde exterior)
-     - bg-sidebar: el sidebar flotante (más oscuro que el fondo)
-     ============================================================ */
+  color-scheme: dark;
 
-  /* El fondo UNIFICADO de toda la ventana (toolbar + área de archivos + outer) */
-  --bg-main:    #2d2d2d;
+  /* Color de primer plano en RGB, para las capas translúcidas */
+  --fg-rgb: 255, 255, 255;
 
-  /* El sidebar flotante es MÁS OSCURO */
-  --bg-sidebar: #1e1e1e;
+  /* ── Superficies sólidas ── */
+  --bg-main:      #2d2d2d;
+  --bg-sidebar:   #1e1e1e;
+  --bg-elevated:  rgba(44, 44, 46, 0.98);   /* diálogos */
+  --bg-menu:      rgba(40, 40, 42, 0.96);   /* menú contextual */
+  --bg-dropdown:  #3c3c3c;
 
-  /* Hover de items en el área principal */
-  --bg-item-hover:     rgba(255,255,255,0.08);
-  --bg-item-selected:  #0060d4;
+  /* ── Capas translúcidas ── */
+  --bg-item-hover:     rgba(var(--fg-rgb), 0.08);
+  --bg-sidebar-hover:  rgba(var(--fg-rgb), 0.09);
+  --bg-search:         rgba(var(--fg-rgb), 0.10);
+  --bg-search-focus:   rgba(var(--fg-rgb), 0.14);
+  --bg-button:         rgba(var(--fg-rgb), 0.10);
+  --bg-button-hover:   rgba(var(--fg-rgb), 0.15);
+  --bg-button-active:  rgba(var(--fg-rgb), 0.22);
+  --bg-viewbtn-active: rgba(var(--fg-rgb), 0.18);
+  --bg-dropdown-border: rgba(var(--fg-rgb), 0.10);
 
-  /* Sidebar item hover */
-  --bg-sidebar-hover:  rgba(255,255,255,0.09);
+  /* ── Selección ── */
+  --bg-item-selected:      #0060d4;               /* fila/ítem activo, con texto blanco */
+  --bg-item-selected-soft: rgba(0, 96, 212, 0.25);
+  --bg-drop-target:        rgba(0, 122, 255, 0.22);
 
-  /* Inputs / search */
-  --bg-search:       rgba(255,255,255,0.10);
-  --bg-search-focus: rgba(255,255,255,0.14);
+  /* ── Texto ── */
+  --text-primary:       rgba(var(--fg-rgb), 0.90);
+  --text-secondary:     rgba(var(--fg-rgb), 0.62);
+  --text-tertiary:      rgba(var(--fg-rgb), 0.55);   /* ≥4.5:1 sobre ambos fondos */
+  --text-sidebar-label: rgba(var(--fg-rgb), 0.58);
+  --text-on-accent:     #ffffff;
 
-  /* Buttons */
-  --bg-button:        rgba(255,255,255,0.10);
-  --bg-button-hover:  rgba(255,255,255,0.15);
-  --bg-button-active: rgba(255,255,255,0.22);
-
-  /* View-mode pill (the active view button bg) */
-  --bg-viewbtn-active: rgba(255,255,255,0.18);
-
-  /* Dropdown popup */
-  --bg-dropdown:        #3c3c3c;
-  --bg-dropdown-hover:  var(--color-accent-blue);
-  --bg-dropdown-border: rgba(255,255,255,0.10);
-
-  /* ── Text ── */
-  --text-primary:       rgba(255,255,255,0.90);
-  --text-secondary:     rgba(255,255,255,0.55);
-  --text-tertiary:      rgba(255,255,255,0.35);
-  --text-sidebar-label: rgba(255,255,255,0.40);
-
-  /* ── Accent ── */
-  --color-accent-blue:       #007aff;
+  /* ── Acento ── */
+  --color-accent-blue:       #0a84ff;  /* íconos, bordes, anillo de foco */
   --color-accent-blue-hover: #0060d4;
+  --color-accent-fill:       #0060d4;  /* fondo de botones con texto blanco (≥4.5:1) */
+  --color-accent-text:       #4da3ff;  /* enlaces y texto en acento sobre fondo oscuro */
+  --focus-ring:              #4da3ff;
 
-  /* ── Borders ── */
-  --border-toolbar: rgba(255,255,255,0.06);
-  --border-color: rgba(61, 61, 61, 1);
+  /* ── Semánticos ── */
+  --color-destructive:      #ff453a;
+  --color-destructive-text: #ff6961;
+  --color-destructive-bg:   rgba(255, 69, 58, 0.15);
+  --color-success:          #30d158;
+  --color-warning:          #ff9f0a;
+  --color-warning-bg:       rgba(255, 159, 10, 0.12);
+  --icon-photos:            #ffd60a;
+  --icon-recents:           #ff9f0a;
 
-  /* ── Sidebar geometry ── */
+  /* ── Bordes ── */
+  --border-toolbar: rgba(var(--fg-rgb), 0.06);
+  --border-color:   #3d3d3d;
+  --border-subtle:  rgba(var(--fg-rgb), 0.12);
+
+  /* ── Sombras ── */
+  --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.55);
+  --shadow-dialog:  0 16px 48px rgba(0, 0, 0, 0.7);
+  --backdrop:       rgba(0, 0, 0, 0.45);
+
+  /* ── Geometría del sidebar ── */
   --sidebar-width:  210px;
   --sidebar-radius: 20px;
   --sidebar-margin: 8px;
 
-  /* ── Other sizes ── */
+  /* ── Otros tamaños ── */
   --toolbar-height:    52px;
   --statusbar-height:  24px;
 
-  /* ── Typography ── */
+  /* ── Movimiento ── */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+
+  /* ── Tipografía ── */
   --font-stack: -apple-system, BlinkMacSystemFont, "SF Pro Text",
     "Segoe UI", Helvetica, Arial, sans-serif;
+}
+
+/* ── Finder claro ─────────────────────────────────────────────────────── */
+@media (prefers-color-scheme: light) {
+  :root {
+    color-scheme: light;
+    --fg-rgb: 0, 0, 0;
+
+    --bg-main:     #f5f5f7;
+    --bg-sidebar:  #e8e8ed;
+    --bg-elevated: rgba(250, 250, 252, 0.98);
+    --bg-menu:     rgba(246, 246, 248, 0.97);
+    --bg-dropdown: #ffffff;
+
+    --bg-item-hover:    rgba(var(--fg-rgb), 0.05);
+    --bg-sidebar-hover: rgba(var(--fg-rgb), 0.06);
+    --bg-search:        rgba(var(--fg-rgb), 0.06);
+    --bg-search-focus:  rgba(var(--fg-rgb), 0.09);
+    --bg-button:        rgba(var(--fg-rgb), 0.06);
+    --bg-button-hover:  rgba(var(--fg-rgb), 0.10);
+    --bg-button-active: rgba(var(--fg-rgb), 0.15);
+    --bg-viewbtn-active: rgba(var(--fg-rgb), 0.12);
+
+    --bg-item-selected-soft: rgba(0, 96, 212, 0.16);
+    --bg-drop-target:        rgba(0, 122, 255, 0.16);
+
+    --text-primary:       rgba(var(--fg-rgb), 0.88);
+    --text-secondary:     rgba(var(--fg-rgb), 0.62);
+    --text-tertiary:      rgba(var(--fg-rgb), 0.58);
+    --text-sidebar-label: rgba(var(--fg-rgb), 0.58);
+
+    --color-accent-blue: #0071e3;
+    --color-accent-text: #0060d4;
+    --focus-ring:        #0071e3;
+
+    --color-destructive:      #d70015;
+    --color-destructive-text: #c4000f;
+    --color-destructive-bg:   rgba(215, 0, 21, 0.10);
+    --color-success:          #248a3d;
+    --color-warning:          #a05a00;
+    --color-warning-bg:       rgba(255, 149, 0, 0.14);
+    --icon-photos:            #b98900;
+    --icon-recents:           #c93400;
+
+    --border-color:  #d2d2d7;
+    --border-subtle: rgba(var(--fg-rgb), 0.10);
+
+    --shadow-popover: 0 12px 32px rgba(0, 0, 0, 0.18);
+    --shadow-dialog:  0 16px 48px rgba(0, 0, 0, 0.22);
+    --backdrop:       rgba(0, 0, 0, 0.25);
+  }
 }

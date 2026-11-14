@@ -2,7 +2,9 @@ import React, { useEffect, useState } from 'react';
 import styles from './PreviewPanel.module.css';
 import type { FetchBlobFn, FileItem, StreamVideoFn } from '../../hooks/useMTPDevice';
 import type { PDFDocument } from 'pdf-lib';
-import { getFileEmoji } from '../explorer/fileEmoji';
+import FileTypeIcon from '../explorer/FileTypeIcon';
+import { plural } from '../../utils/format';
+import { Download, FileAudio } from 'lucide-react';
 
 /** Bytes que se leen para el preview de texto. */
 const TEXT_PREVIEW_MAX_BYTES = 1024 * 1024;
@@ -95,7 +97,7 @@ const StackedIcons: React.FC<{ files: FileItem[] }> = ({ files }) => {
         >
           {file.isFolder
             ? <FolderFallback />
-            : <span className={styles.stackEmoji}>{getFileEmoji(file.name)}</span>
+            : <FileTypeIcon name={file.name} size={64} className={styles.stackEmoji} />
           }
         </div>
       ))}
@@ -109,6 +111,8 @@ interface PreviewPanelProps {
   /** All currently selected files — when > 1 shows stacked-icon view */
   selectedFiles?: FileItem[];
   onDownload: (file: FileItem) => void;
+  /** Descargar toda la selección (con varios archivos se arma un ZIP). */
+  onDownloadSelected?: () => void;
   isDownloading: boolean;
   onFetchBlob: FetchBlobFn;
   /**
@@ -152,6 +156,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   file,
   selectedFiles,
   onDownload,
+  onDownloadSelected,
   isDownloading,
   onFetchBlob,
   metadataOnly = false,
@@ -309,18 +314,31 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
   /* ── Multi-select stacked view ── */
   if (isMulti && selectedFiles) {
     const totalSize = selectedFiles.filter(f => !f.isFolder).reduce((s, f) => s + (f.size || 0), 0);
+    const fileCount = selectedFiles.filter(f => !f.isFolder).length;
     return (
       <div className={styles.panel}>
         <div className={styles.previewArea}>
           <StackedIcons files={selectedFiles} />
         </div>
         <div className={styles.metaArea}>
-          <div className={styles.fileName}>{selectedFiles.length} elementos seleccionados</div>
+          <div className={styles.fileName}>{plural(selectedFiles.length, 'elemento seleccionado', 'elementos seleccionados')}</div>
           {totalSize > 0 && (
             <div className={styles.metaRow}>
               <span className={styles.metaKey}>Tamaño total</span>
               <span className={styles.metaVal}>{formatSize(totalSize)}</span>
             </div>
+          )}
+          {onDownloadSelected && fileCount > 0 && (
+            <button
+              type="button"
+              className={styles.downloadBtn}
+              onClick={onDownloadSelected}
+              disabled={isDownloading}
+            >
+              {isDownloading
+                ? 'Descargando…'
+                : fileCount === 1 ? 'Descargar' : `Descargar ${fileCount} archivos (ZIP)`}
+            </button>
           )}
         </div>
       </div>
@@ -359,7 +377,7 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
       return (
         <div className={styles.loadingPreview}>
           <div className={styles.spinner} />
-          <span>Cargando vista previa...</span>
+          <span>Cargando vista previa…</span>
         </div>
       );
     }
@@ -424,8 +442,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     if (effectivePtype === 'audio' && (directUrl ?? blobUrl)) {
       return (
-        <div style={{ width: '100%', padding: '0 8px' }}>
-          <div style={{ fontSize: 48, textAlign: 'center', marginBottom: 12 }}>🎵</div>
+        <div className={styles.audioWrap}>
+          <FileAudio size={48} strokeWidth={1.2} className={styles.audioIcon} aria-hidden="true" />
           <audio className={styles.previewAudio} src={directUrl ?? blobUrl!} controls />
         </div>
       );
@@ -479,8 +497,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
 
     /* Fallback */
     return (
-      <div style={{ textAlign: 'center' }}>
-        <span className={styles.fallbackIcon}>{getFileEmoji(file.name)}</span>
+      <div className={styles.fallbackWrap}>
+        <FileTypeIcon name={file.name} size={72} className={styles.fallbackIcon} />
       </div>
     );
   };
@@ -523,7 +541,8 @@ const PreviewPanel: React.FC<PreviewPanelProps> = ({
             onClick={() => onDownload(file)}
             disabled={isDownloading}
           >
-            {isDownloading ? 'Descargando...' : '⬇ Descargar'}
+            <Download size={14} strokeWidth={1.8} aria-hidden="true" />
+            {isDownloading ? 'Descargando…' : 'Descargar'}
           </button>
         )}
       </div>

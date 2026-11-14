@@ -1,7 +1,7 @@
 import React from 'react';
 import styles from './Toolbar.module.css';
 import type { PathNode } from '../../hooks/useMTPDevice';
-import type { ViewMode, SortMode, GroupMode } from '../layout/AppLayout';
+import type { ViewMode, SortMode, SortDir, GroupMode } from '../layout/AppLayout';
 import SortDropdown from './SortDropdown';
 
 /* ─── SVG Icons ──────────────────────────────────────────────────────────── */
@@ -98,12 +98,17 @@ interface ToolbarProps {
   viewMode: ViewMode;
   onViewModeChange: (v: ViewMode) => void;
   sortMode: SortMode;
-  onSortModeChange: (s: SortMode) => void;
+  sortDir: SortDir;
+  onSortChange: (s: SortMode) => void;
+  onNavigateToPathIndex: (index: number) => void;
   groupMode: GroupMode;
   onGroupModeChange: (g: GroupMode) => void;
   searchQuery: string;
   onSearchChange: (q: string) => void;
 }
+
+/** id del campo de búsqueda, para enfocarlo con ⌘F. */
+export const SEARCH_INPUT_ID = 'toolbar-search';
 
 const VIEW_MODES: { mode: ViewMode; icon: React.ReactNode; title: string }[] = [
   { mode: 'grid',    icon: <IcoGrid />,    title: 'Íconos'   },
@@ -123,16 +128,23 @@ const Toolbar: React.FC<ToolbarProps> = ({
   viewMode,
   onViewModeChange,
   sortMode,
-  onSortModeChange,
+  sortDir,
+  onSortChange,
+  onNavigateToPathIndex,
   groupMode,
   onGroupModeChange,
   searchQuery,
   onSearchChange,
 }) => {
   const canGoBack = isConnected && currentPath.length > 1;
-  const currentFolder = currentPath.length > 0
-    ? currentPath[currentPath.length - 1].name
-    : '';
+  // Breadcrumb: si la ruta es larga se muestran la raíz, "…" y las dos últimas
+  const crumbs = currentPath.length > 4
+    ? [
+        { node: currentPath[0], index: 0 },
+        null,
+        ...currentPath.slice(-2).map((node, i) => ({ node, index: currentPath.length - 2 + i })),
+      ]
+    : currentPath.map((node, index) => ({ node, index }));
 
   return (
     <div className={styles.toolbar}>
@@ -143,6 +155,7 @@ const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onNavigateOut}
           disabled={!canGoBack || isLoading}
           title="Atrás"
+          aria-label="Atrás"
         >
           <IcoBack />
         </button>
@@ -150,28 +163,52 @@ const Toolbar: React.FC<ToolbarProps> = ({
           onClick={onNavigateForward}
           disabled={!canGoForward || isLoading}
           title="Adelante"
+          aria-label="Adelante"
         >
           <IcoForward />
         </button>
       </div>
 
-      {/* Current folder */}
-      {isConnected && currentFolder && (
-        <span className={styles.folderTitle}>{currentFolder}</span>
+      {/* Ruta actual */}
+      {isConnected && crumbs.length > 0 && (
+        <nav className={styles.breadcrumb} aria-label="Ubicación">
+          <ol>
+            {crumbs.map((c, i) => {
+              if (!c) return <li key="gap" className={styles.crumbGap} aria-hidden="true">…</li>;
+              const isCurrent = c.index === currentPath.length - 1;
+              return (
+                <li key={c.node.id} className={styles.crumbItem}>
+                  {i > 0 && <span className={styles.crumbSep} aria-hidden="true">›</span>}
+                  {isCurrent ? (
+                    <span className={styles.crumbCurrent} aria-current="location" title={c.node.name}>{c.node.name}</span>
+                  ) : (
+                    <button type="button" className={styles.crumbLink} title={c.node.name}
+                      onClick={() => onNavigateToPathIndex(c.index)} disabled={isLoading}>
+                      {c.node.name}
+                    </button>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+        </nav>
       )}
 
       <div className={styles.spacer} />
 
-      {isLoading && <span className={styles.loader}>Cargando...</span>}
+      {isLoading && <span className={styles.loader} role="status">Cargando…</span>}
 
       {/* View mode buttons */}
-      <div className={styles.viewGroup}>
+      <div className={styles.viewGroup} role="group" aria-label="Vista">
         {VIEW_MODES.map(({ mode, icon, title }) => (
           <button
             key={mode}
+            type="button"
             className={`${styles.viewBtn} ${viewMode === mode ? styles.active : ''}`}
             onClick={() => onViewModeChange(mode)}
             title={title}
+            aria-label={title}
+            aria-pressed={viewMode === mode}
           >
             {icon}
           </button>
@@ -181,7 +218,8 @@ const Toolbar: React.FC<ToolbarProps> = ({
       {/* Sort dropdown */}
       <SortDropdown
         sortMode={sortMode}
-        onSortModeChange={onSortModeChange}
+        sortDir={sortDir}
+        onSortChange={onSortChange}
         triggerClassName={styles.groupBtn}
         triggerContent={
           <>
@@ -192,27 +230,34 @@ const Toolbar: React.FC<ToolbarProps> = ({
       />
 
       {/* Group toggle button */}
-      <div style={{ marginLeft: 6 }}>
-        <button
-          className={`${styles.groupToggleBtn} ${groupMode === 'kind' ? styles.active : ''}`}
-          onClick={() => onGroupModeChange(groupMode === 'kind' ? 'none' : 'kind')}
-          title="Agrupar por clase"
-        >
-          <IcoGroup />
-        </button>
-      </div>
+      <button
+        type="button"
+        className={`${styles.groupToggleBtn} ${groupMode === 'kind' ? styles.active : ''}`}
+        onClick={() => onGroupModeChange(groupMode === 'kind' ? 'none' : 'kind')}
+        title="Agrupar por tipo"
+        aria-label="Agrupar por tipo"
+        aria-pressed={groupMode === 'kind'}
+      >
+        <IcoGroup />
+      </button>
 
       <div className={styles.sep} />
 
       {/* Search */}
-      <div className={styles.searchBox}>
-        <span className={styles.searchIcon}><IcoSearch /></span>
+      <div className={styles.searchBox} role="search">
+        <span className={styles.searchIcon} aria-hidden="true"><IcoSearch /></span>
         <input
+          id={SEARCH_INPUT_ID}
           className={styles.searchInput}
-          type="text"
+          type="search"
           placeholder="Buscar"
+          aria-label="Buscar en esta carpeta"
           value={searchQuery}
           onChange={e => onSearchChange(e.target.value)}
+          onKeyDown={e => {
+            if (e.key === 'Escape' && searchQuery) { e.preventDefault(); e.stopPropagation(); onSearchChange(''); }
+          }}
+          disabled={!isConnected}
         />
       </div>
     </div>
